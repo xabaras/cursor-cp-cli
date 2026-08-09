@@ -1,14 +1,17 @@
-# Cursor Control Plane
+# Cursor Control Plane CLI (`cursor-cp-cli`)
 
-A TypeScript control plane for creating and managing [Cursor](https://cursor.com) agent sessions from a web dashboard or a Telegram bot, built on the official [`@cursor/sdk`](https://www.npmjs.com/package/@cursor/sdk).
+Fork of [sanjaysingh/cursor-cp](https://github.com/sanjaysingh/cursor-cp) that keeps the original web dashboard, REST API, and Telegram SDK sessions — and adds a **Cursor CLI bridge**: attach Telegram to existing local `agent` chats (`~/.cursor/chats`) via `agent -p --resume`.
 
-[![CI](https://github.com/sanjaysingh/cursor-cp/actions/workflows/ci.yml/badge.svg)](https://github.com/sanjaysingh/cursor-cp/actions/workflows/ci.yml)
+[![CI](https://github.com/xabaras/cursor-cp-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xabaras/cursor-cp-cli/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
+
+> **Upstream:** this project is based on Cursor Control Plane by Sanjay Singh ([MIT](LICENSE)). Differences from upstream are focused on the Telegram ↔ Cursor CLI integration documented below.
 
 ## Table of Contents
 
 - [Overview](#overview)
+- [Cursor CLI bridge](#cursor-cli-bridge)
 - [Quick Start](#quick-start)
 - [Installation](#installation)
 - [Background service](#background-service)
@@ -28,14 +31,64 @@ real-time web dashboard, a REST API, and an optional Telegram bot. Sessions and
 their message history are persisted to SQLite, so they survive restarts and can be
 resumed automatically.
 
+This fork additionally lets Telegram continue **existing Cursor CLI chats** on your
+machine (created with the `agent` TUI), without going through the SDK session path.
+
 ### Features
 
 - **Web dashboard** — real-time chat UI with WebSocket streaming
 - **Telegram bot** — drive agents from chat, with inline buttons for sessions, models, and repos
+- **Cursor CLI bridge** — attach Telegram to local CLI chats (`/cli`), with modes, queue, and live streaming
 - **Persistent sessions** — SQLite-backed session, message, and participant storage
 - **Multi-repository support** — work across local workspaces and clone GitHub repos via the `gh` CLI
 - **Model selection** — choose any model the Cursor SDK exposes, per session or as a default
 - **REST API** — full programmatic access to every feature
+
+## Cursor CLI bridge
+
+Requires the [Cursor CLI](https://cursor.com/docs/cli) (`agent`) installed and authenticated on the same machine as the daemon.
+
+Enable in `~/cursor-cp/config.yaml`:
+
+```yaml
+cli_bridge:
+  enabled: true
+  agent_bin: agent          # or absolute path, e.g. ~/.local/bin/agent
+  chats_root: ~/.cursor/chats
+  force: true               # --force / no interactive tool approvals
+  trust: true
+  filter_by_workspace_root: true
+  timeout_ms: 600000
+  stream_edit_interval_ms: 1200
+```
+
+Then restart the daemon (`cursor-cp daemon restart`).
+
+### How it works
+
+1. `/cli` lists chats under `~/.cursor/chats` (optionally filtered by `workspace_root`).
+2. Attaching a chat routes subsequent plain-text Telegram messages to  
+   `agent -p --resume <chatId> --workspace <cwd> --trust --force`.
+3. Without a CLI attach, plain text still uses **SDK sessions** (`/sessions`, `/workspaces`, …).
+4. Avoid using the **same** CLI chat in the terminal TUI and Telegram at the same time.
+
+### Telegram CLI commands
+
+| Command | Description |
+|---------|-------------|
+| `/cli` | List and attach a CLI chat (filtered by `workspace_root` when enabled) |
+| `/cli all` | List all CLI chats |
+| `/cli new` | Create and attach a new CLI chat |
+| `/cli mode [agent\|plan\|ask]` | Show or set CLI execution mode (persisted with the attach) |
+| `/cli plan` / `/cli ask` / `/cli agent` | Shortcuts for `/cli mode` |
+| `/cli cancel` | Stop the current CLI run |
+| `/cli cancel all` | Stop the run and clear the queue |
+| `/cli off` | Detach CLI mode (back to SDK sessions) |
+| `/cli status` | Show attach status, mode, and queue |
+
+**Modes:** `agent` (default, can edit; uses `--force`), `plan` and `ask` (read-only via `agent --mode`). Cursor IDE **debug** mode is not available in headless CLI.
+
+Jobs for the same Telegram chat are queued FIFO. Replies stream via Telegram message edits.
 
 ## Quick Start
 
@@ -43,16 +96,17 @@ resumed automatically.
 
 | Requirement | Minimum | Recommended | Notes |
 |-------------|---------|-------------|-------|
-| Node.js | 20.x | 22.x | |
+| Node.js | 20.x | 22.x | Prefer 22.x if native modules fail on newer Node |
 | npm | 9.x | latest | Ships with Node.js |
 | Cursor API key | — | — | [Get one here](https://cursor.com/dashboard/cloud-agents) |
+| Cursor CLI (`agent`) | — | latest | Required for the CLI bridge |
 | Git | any | latest | Required to clone/update |
 | GitHub CLI (`gh`) | — | latest | Optional, enables repo browsing/cloning |
 
 ### Install (macOS / Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sanjaysingh/cursor-cp/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xabaras/cursor-cp-cli/main/install.sh | bash
 ```
 
 That's the supported install method. It performs a per-user install (no `sudo`,
@@ -72,6 +126,8 @@ Then start the server (or enable the daemon during setup):
 cursor-cp        # serve at http://localhost:8747
 ```
 
+Enable `cli_bridge` in `~/cursor-cp/config.yaml` if you want Telegram ↔ CLI chats.
+
 Re-run the wizard anytime with `cursor-cp setup`, and verify your install with
 `cursor-cp doctor`.
 
@@ -82,7 +138,7 @@ Re-run the wizard anytime with `cursor-cp setup`, and verify your install with
 ### One-line installer
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sanjaysingh/cursor-cp/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xabaras/cursor-cp-cli/main/install.sh | bash
 ```
 
 On an interactive terminal the installer prints next steps; run `cursor-cp setup`
@@ -92,8 +148,8 @@ Pass options through the pipe with `bash -s --`:
 
 ```bash
 # Install a specific tag/branch, or to a custom directory
-curl -fsSL https://raw.githubusercontent.com/sanjaysingh/cursor-cp/main/install.sh \
-  | bash -s -- --version v0.2.5 --dir "$HOME/apps/cursor-cp"
+curl -fsSL https://raw.githubusercontent.com/xabaras/cursor-cp-cli/main/install.sh \
+  | bash -s -- --version main --dir "$HOME/apps/cursor-cp"
 ```
 
 You can also download and run it directly (`bash install.sh [options]`).
@@ -346,8 +402,8 @@ static/         # Web dashboard (Alpine.js + Tailwind via CDN)
 ## Development
 
 ```bash
-git clone https://github.com/sanjaysingh/cursor-cp.git
-cd cursor-cp
+git clone https://github.com/xabaras/cursor-cp-cli.git
+cd cursor-cp-cli
 npm install
 cp config.default.yaml config.yaml   # then set cursor.api_key
 npm run dev
@@ -436,14 +492,16 @@ Set `channels.telegram.enabled: true`, add `bot_token` and your user ID(s) in
 | `/start` | Show help |
 | `/sessions` | List sessions and connect |
 | `/models` | List models and set the default |
-| `/current` | Show the current session |
+| `/current` | Show the current session or CLI attach |
 | `/close` | Close the current session |
 | `/closeall` | Close all sessions |
 | `/repos` | Browse and clone GitHub repos (`gh`) |
 | `/workspaces` | Browse local workspace folders |
+| `/cli` … | Cursor CLI bridge (see [Cursor CLI bridge](#cursor-cli-bridge)) |
+| `/version` | Show Control Plane version |
 
-Any other text is sent to the active session. Only users listed in
-`channels.telegram.allowed_user_ids` are allowed to interact with the bot.
+Any other text is sent to the attached CLI chat (if any) or the active SDK session.
+Only users listed in `channels.telegram.allowed_user_ids` are allowed to interact with the bot.
 
 ## Troubleshooting
 
@@ -462,6 +520,10 @@ cursor-cp setup
 gh auth login
 ```
 
+**CLI bridge: `agent` not found** — Install the Cursor CLI and set `cli_bridge.agent_bin` to its absolute path.
+
+**CLI bridge: wrong chats listed** — Set `workspace_root` and keep `cli_bridge.filter_by_workspace_root: true`, or use `/cli all`.
+
 **Verbose logging** — Set `logging.level: debug` in `config.yaml` and restart.
 
 ## Contributing
@@ -470,6 +532,12 @@ Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md)
 opening a pull request. All pull requests must pass lint, type check, tests, and build
 in CI.
 
+Bug reports and PRs for this fork: [xabaras/cursor-cp-cli](https://github.com/xabaras/cursor-cp-cli).
+Upstream project: [sanjaysingh/cursor-cp](https://github.com/sanjaysingh/cursor-cp).
+
 ## License
 
 [MIT](LICENSE) © Sanjay Singh
+
+Additional modifications in this fork © contributors to
+[xabaras/cursor-cp-cli](https://github.com/xabaras/cursor-cp-cli).

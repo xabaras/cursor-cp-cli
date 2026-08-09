@@ -32,3 +32,14 @@ logging:
 
 repos: []
 # workspace_root: ~/cursor-cp/ws-root
+
+# Bridge Telegram → existing Cursor CLI chats (~/.cursor/chats) via agent -p --resume
+cli_bridge:
+  enabled: false
+  agent_bin: agent
+  chats_root: ~/.cursor/chats
+  force: true
+  trust: true
+  filter_by_workspace_root: true
+  timeout_ms: 600000
+  stream_edit_interval_ms: 1200

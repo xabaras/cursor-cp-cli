@@ -60,6 +60,8 @@ export function buildConfigObject(
     ...base,
     cursor: { api_key: values.apiKey },
     repos: base.repos ?? [],
+    workspace_root: base.workspace_root,
+    cli_bridge: base.cli_bridge,
     channels: {
       telegram: {
         enabled: values.telegram.enabled,

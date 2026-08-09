@@ -50,6 +50,27 @@ export const RawConfigSchema = z.object({
     level: z.string().default('info'),
     file: z.union([z.string(), z.boolean(), z.null()]).optional(),
   }).default({ level: 'info' }),
+  cli_bridge: z
+    .object({
+      enabled: z.boolean().default(false),
+      agent_bin: z.string().default('agent'),
+      chats_root: z.string().default('~/.cursor/chats'),
+      force: z.boolean().default(true),
+      trust: z.boolean().default(true),
+      filter_by_workspace_root: z.boolean().default(true),
+      timeout_ms: z.number().default(600_000),
+      stream_edit_interval_ms: z.number().default(1200),
+    })
+    .default({
+      enabled: false,
+      agent_bin: 'agent',
+      chats_root: '~/.cursor/chats',
+      force: true,
+      trust: true,
+      filter_by_workspace_root: true,
+      timeout_ms: 600_000,
+      stream_edit_interval_ms: 1200,
+    }),
 });
 
 export type RawConfig = z.infer<typeof RawConfigSchema>;
@@ -151,6 +172,16 @@ function rawToAppConfig(raw: RawConfig): AppConfig {
     logging: {
       level: raw.logging.level,
       file: resolveLogFileSetting(raw.logging.file),
+    },
+    cliBridge: {
+      enabled: raw.cli_bridge.enabled,
+      agentBin: raw.cli_bridge.agent_bin.trim() || 'agent',
+      chatsRoot: expandHome(raw.cli_bridge.chats_root || '~/.cursor/chats'),
+      force: raw.cli_bridge.force,
+      trust: raw.cli_bridge.trust,
+      filterByWorkspaceRoot: raw.cli_bridge.filter_by_workspace_root,
+      timeoutMs: raw.cli_bridge.timeout_ms,
+      streamEditIntervalMs: raw.cli_bridge.stream_edit_interval_ms,
     },
   };
 }

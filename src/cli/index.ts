@@ -54,6 +54,11 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
     console.log(`  Default Model: ${config.sdk.defaultModel}`);
     console.log(`  Telegram: ${config.channels.telegram.enabled ? 'enabled' : 'disabled'}`);
     console.log(`  Web: ${config.channels.web.enabled ? 'enabled' : 'disabled'}`);
+    console.log(`  CLI bridge: ${config.cliBridge.enabled ? 'enabled' : 'disabled'}`);
+    if (config.cliBridge.enabled) {
+      console.log(`  CLI agent: ${config.cliBridge.agentBin}`);
+      console.log(`  CLI chats: ${config.cliBridge.chatsRoot}`);
+    }
     console.log(`  Log level: ${config.logging.level}`);
     console.log(`  API Key: ${config.cursorApiKey ? 'configured' : 'NOT SET'}`);
     console.log();

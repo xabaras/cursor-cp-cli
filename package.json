@@ -1,21 +1,25 @@
 {
-  "name": "cursor-cp",
+  "name": "cursor-cp-cli",
   "version": "0.4.0",
-  "description": "Cursor Control Plane - a web and Telegram control plane for managing Cursor agent sessions, built on the official @cursor/sdk",
+  "description": "Fork of cursor-cp with a Telegram bridge to existing Cursor CLI chats (agent -p --resume), plus the original web/Telegram SDK control plane",
   "type": "module",
   "license": "MIT",
   "author": "Sanjay Singh",
-  "homepage": "https://github.com/sanjaysingh/cursor-cp#readme",
+  "contributors": [
+    "xabaras"
+  ],
+  "homepage": "https://github.com/xabaras/cursor-cp-cli#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sanjaysingh/cursor-cp.git"
+    "url": "git+https://github.com/xabaras/cursor-cp-cli.git"
   },
   "bugs": {
-    "url": "https://github.com/sanjaysingh/cursor-cp/issues"
+    "url": "https://github.com/xabaras/cursor-cp-cli/issues"
   },
   "keywords": [
     "cursor",
     "cursor-sdk",
+    "cursor-cli",
     "agent",
     "control-plane",
     "telegram-bot",

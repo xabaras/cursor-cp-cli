@@ -84,6 +84,19 @@ export interface LoggingConfig {
   file: LogFileSetting;
 }
 
+export interface CliBridgeConfig {
+  enabled: boolean;
+  agentBin: string;
+  chatsRoot: string;
+  force: boolean;
+  trust: boolean;
+  /** When true, /cli lists only chats under workspaceRoot */
+  filterByWorkspaceRoot: boolean;
+  timeoutMs: number;
+  /** Throttle interval for live Telegram message edits during CLI runs */
+  streamEditIntervalMs: number;
+}
+
 export interface AppConfig {
   cursorApiKey: string;
   repos: RepoEntry[];
@@ -95,6 +108,7 @@ export interface AppConfig {
   server: ServerConfig;
   sdk: SdkConfig;
   logging: LoggingConfig;
+  cliBridge: CliBridgeConfig;
 }
 
 export type EventType =

@@ -8,6 +8,23 @@ import type { Channel } from './base.js';
 import type { MessageTarget, AppConfig } from '../models/types.js';
 import type { SessionManager } from '../core/session-manager.js';
 import { listLocalWorkspaceItems } from '../core/repo-picker.js';
+import {
+  listCliChats,
+  formatCliChatLabel,
+  cliChatMetaExists,
+  type CliChatMeta,
+} from '../core/cli-chat-store.js';
+import { CliPrintRunner } from '../core/cli-print-runner.js';
+import { tryAcquireCliChatLock, releaseCliChatLock } from '../core/cli-chat-lock.js';
+import {
+  loadCliAttaches,
+  saveCliAttaches,
+  pruneInvalidCliAttaches,
+  normalizeCliAgentMode,
+  type CliAgentMode,
+} from '../core/cli-attach-store.js';
+import { CliJobQueue } from '../core/cli-job-queue.js';
+import { createCliChat } from '../core/cli-create-chat.js';
 import { splitPlainText, markdownToTelegram, markdownToTelegramHtml } from '../format/telegram-format.js';
 import { createHash } from 'crypto';
 import { logger } from '../util/logger.js';
@@ -23,6 +40,19 @@ interface PendingQuestion {
   resolve: (answer: string) => void;
   options: string[];
   sessionId: string;
+}
+
+interface CliAttach {
+  chatId: string;
+  cwd: string;
+  title: string;
+  mode: CliAgentMode;
+}
+
+interface CliJobPayload {
+  telegramChatId: string;
+  attach: CliAttach;
+  text: string;
 }
 
 export class TelegramChannel implements Channel {
@@ -41,6 +71,14 @@ export class TelegramChannel implements Channel {
   private pendingWorkspaces: Map<string, string[]> = new Map();
   // Model IDs for callbacks
   private modelIds: Map<string, string[]> = new Map();
+  // Pending CLI chat picks for /cli
+  private pendingCliChats: Map<string, CliChatMeta[]> = new Map();
+  // Pending workspaces for /cli new
+  private pendingCliNewWorkspaces: Map<string, string[]> = new Map();
+  // Active CLI attach per Telegram chat (overrides SDK routing for text)
+  private cliAttaches: Map<string, CliAttach> = new Map();
+  private cliRunner = new CliPrintRunner();
+  private cliQueue = new CliJobQueue<CliJobPayload>();
 
   // Track active sessions per chat
   private activeSessions: Map<string, string> = new Map();
@@ -56,8 +94,64 @@ export class TelegramChannel implements Channel {
     this.allowedUserIds = allowedUserIds;
     this.config = config;
 
+    this.restoreCliAttaches();
     this.setupHandlers();
     this.setupMiddleware();
+  }
+
+  private restoreCliAttaches(): void {
+    if (!this.config.cliBridge.enabled) return;
+    const loaded = loadCliAttaches();
+    const removed = pruneInvalidCliAttaches(
+      loaded,
+      this.config.cliBridge.chatsRoot,
+      cliChatMetaExists
+    );
+    this.cliAttaches = new Map();
+    for (const [key, attach] of loaded.entries()) {
+      this.cliAttaches.set(key, {
+        chatId: attach.chatId,
+        cwd: attach.cwd,
+        title: attach.title,
+        mode: normalizeCliAgentMode(attach.mode),
+      });
+    }
+    if (removed > 0) {
+      this.persistCliAttaches();
+      logger.info({ removed }, 'Pruned stale CLI attaches');
+    } else if (loaded.size > 0) {
+      logger.info({ count: loaded.size }, 'Restored CLI attaches from disk');
+    }
+  }
+
+  private persistCliAttaches(): void {
+    try {
+      saveCliAttaches(this.cliAttaches);
+    } catch (err) {
+      logger.warn({ err }, 'Failed to persist CLI attaches');
+    }
+  }
+
+  private setCliAttach(telegramChatId: string, attach: CliAttach): void {
+    this.cliAttaches.set(telegramChatId, {
+      ...attach,
+      mode: normalizeCliAgentMode(attach.mode),
+    });
+    this.activeSessions.delete(telegramChatId);
+    this.persistCliAttaches();
+  }
+
+  private setCliMode(telegramChatId: string, mode: CliAgentMode): boolean {
+    const attach = this.cliAttaches.get(telegramChatId);
+    if (!attach) return false;
+    attach.mode = mode;
+    this.persistCliAttaches();
+    return true;
+  }
+
+  private clearCliAttach(telegramChatId: string): void {
+    this.cliAttaches.delete(telegramChatId);
+    this.persistCliAttaches();
   }
 
   private setupMiddleware(): void {
@@ -76,7 +170,7 @@ export class TelegramChannel implements Channel {
   }
 
   private botCommands(): Array<{ command: string; description: string }> {
-    return [
+    const commands = [
       { command: 'start', description: 'Show help' },
       { command: 'sessions', description: 'List sessions and connect' },
       { command: 'models', description: 'List models and set default' },
@@ -87,6 +181,13 @@ export class TelegramChannel implements Channel {
       { command: 'workspaces', description: 'Local workspace folders' },
       { command: 'version', description: 'Show Cursor Control Plane version' },
     ];
+    if (this.config.cliBridge.enabled) {
+      commands.splice(2, 0, {
+        command: 'cli',
+        description: 'CLI chats: list/mode/new/cancel/off (see /start)',
+      });
+    }
+    return commands;
   }
 
   /** Register slash commands for allowed users (Telegram autocomplete menu). */
@@ -131,19 +232,45 @@ export class TelegramChannel implements Channel {
         await this.syncBotCommandsForUser(userId);
       }
 
+      // Plain text: Telegram legacy Markdown breaks on backticks/tildes in paths like ~/.cursor/chats
       await ctx.reply(
-        '🤖 *Cursor Control Plane*\n\n' +
-        'Available commands:\n' +
-        '/sessions - List and connect to sessions\n' +
-        '/models - List models and set default\n' +
-        '/repos - Browse GitHub repositories\n' +
-        '/workspaces - Browse local workspaces\n' +
-        '/current - Show current session\n' +
-        '/close - Close current session\n' +
-        '/closeall - Close all sessions\n' +
-        '/version - Show version\n\n' +
-        'Send me any text to start or continue a session.',
-        { parse_mode: 'Markdown' }
+        [
+          'Cursor Control Plane',
+          '',
+          'Available commands:',
+          '/sessions - List and connect to SDK sessions',
+          '/models - List models and set default',
+          '/repos - Browse GitHub repositories',
+          '/workspaces - Browse local workspaces',
+          '/current - Show current session or CLI attach',
+          '/close - Close current SDK session',
+          '/closeall - Close all SDK sessions',
+          '/version - Show version',
+          ...(this.config.cliBridge.enabled
+            ? [
+                '',
+                'Cursor CLI bridge (existing agent chats on your machine):',
+                '/cli - List and attach a CLI chat (filtered by workspace_root)',
+                '/cli all - List all CLI chats',
+                '/cli new - Create and attach a new CLI chat',
+                '/cli mode [agent|plan|ask] - Show or set CLI execution mode',
+                '/cli plan|/cli ask|/cli agent - Shortcuts for /cli mode',
+                '/cli cancel - Stop the current CLI run',
+                '/cli cancel all - Stop run and clear the queue',
+                '/cli off - Detach CLI mode (back to SDK sessions)',
+                '/cli status - Show CLI attach status',
+                '',
+                'With a CLI chat attached, plain text continues that chat',
+                '(queued if busy; runs with --force, no tool approvals).',
+                'plan/ask are read-only CLI modes; agent can edit (default).',
+                'Without CLI attach, plain text uses SDK sessions.',
+                'Avoid using the same CLI chat in the terminal and Telegram at once.',
+              ]
+            : [
+                '',
+                'Send any text to start or continue an SDK session.',
+              ]),
+        ].join('\n')
       );
     });
 
@@ -200,10 +327,23 @@ export class TelegramChannel implements Channel {
     // Current session
     this.bot.command('current', async (ctx) => {
       const chatId = String(ctx.chat?.id);
+      const cliAttach = this.cliAttaches.get(chatId);
+      if (cliAttach) {
+        await ctx.reply(
+          `📎 *CLI chat*\n` +
+            `Title: ${cliAttach.title}\n` +
+            `Id: \`${cliAttach.chatId}\`\n` +
+            `cwd: \`${cliAttach.cwd}\`\n` +
+            `CLI mode: ${cliAttach.mode}`,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
       const sessionId = this.activeSessions.get(chatId);
 
       if (!sessionId) {
-        await ctx.reply('No active session. Use /sessions to connect to one.');
+        await ctx.reply('No active session. Use /sessions or /cli.');
         return;
       }
 
@@ -305,16 +445,85 @@ export class TelegramChannel implements Channel {
       }
     });
 
+    // Cursor CLI chats (~/.cursor/chats) via agent -p --resume
+    this.bot.command('cli', async (ctx) => {
+      if (!this.config.cliBridge.enabled) {
+        await ctx.reply(
+          'CLI bridge is disabled. Set `cli_bridge.enabled: true` in config.yaml and restart.'
+        );
+        return;
+      }
+
+      const chatId = String(ctx.chat?.id);
+      const message = ctx.message;
+      const rawText =
+        message && 'text' in message && typeof message.text === 'string' ? message.text : '/cli';
+      const arg = rawText.replace(/^\/cli(@\w+)?/i, '').trim();
+      const argLower = arg.toLowerCase();
+
+      if (argLower === 'off' || argLower === 'detach' || argLower === 'clear') {
+        if (!this.cliAttaches.has(chatId)) {
+          await ctx.reply('No CLI chat attached.');
+          return;
+        }
+        this.clearCliAttach(chatId);
+        await ctx.reply('✅ Detached from CLI chat. Text now uses Control Plane SDK sessions.');
+        return;
+      }
+
+      if (argLower === 'status' || argLower === 'current') {
+        await this.replyCliStatus(ctx, chatId);
+        return;
+      }
+
+      if (
+        argLower === 'mode' ||
+        argLower.startsWith('mode ') ||
+        argLower === 'plan' ||
+        argLower === 'ask' ||
+        argLower === 'agent'
+      ) {
+        await this.handleCliModeCommand(ctx, chatId, argLower);
+        return;
+      }
+
+      if (argLower === 'cancel' || argLower.startsWith('cancel ')) {
+        const all = argLower === 'cancel all' || argLower.endsWith(' all');
+        const wasRunning = this.cliRunner.isRunning;
+        this.cliRunner.cancel();
+        const cleared = all ? this.cliQueue.clear(chatId) : 0;
+        if (!wasRunning && cleared === 0) {
+          await ctx.reply('Nothing to cancel (no active CLI run / empty queue).');
+          return;
+        }
+        await ctx.reply(
+          all
+            ? `✅ Cancelled run and cleared ${cleared} queued job(s).`
+            : '✅ Cancel signal sent to current CLI run (queue kept).'
+        );
+        return;
+      }
+
+      if (argLower === 'new') {
+        await this.startCliNew(ctx, chatId);
+        return;
+      }
+
+      const listAll = argLower === 'all';
+      await this.replyCliChatList(ctx, chatId, { listAll });
+    });
+
     // Handle session selection callback
     this.bot.action(/session:(.+)/, async (ctx) => {
       const sessionId = ctx.match[1];
       const chatId = String(ctx.chat?.id);
 
+      this.clearCliAttach(chatId);
       await this.sessionManager.joinSession(sessionId, 'telegram', chatId);
       this.activeSessions.set(chatId, sessionId);
 
       await ctx.answerCbQuery('Connected to session');
-      await ctx.reply('✅ Connected to session. You can now send messages.');
+      await ctx.reply('✅ Connected to SDK session (CLI attach cleared). You can now send messages.');
     });
 
     // Handle model selection callback
@@ -368,6 +577,7 @@ export class TelegramChannel implements Channel {
         }
 
         // Create session with this repo
+        this.clearCliAttach(chatId);
         const session = await this.sessionManager.createSession('telegram', chatId, targetPath, repoName);
         this.activeSessions.set(chatId, session.id);
         await ctx.reply(`✅ Created session for ${repoName}. Send me text to start!`);
@@ -390,11 +600,64 @@ export class TelegramChannel implements Channel {
       const path = paths[index];
       const name = path.split(/[/\\]/).pop() || 'workspace';
 
+      this.clearCliAttach(chatId);
       await ctx.answerCbQuery(`Using workspace: ${name}`);
 
       const session = await this.sessionManager.createSession('telegram', chatId, path, name);
       this.activeSessions.set(chatId, session.id);
       await ctx.reply(`✅ Created session for ${name}. Send me text to start!`);
+    });
+
+    // Handle CLI chat selection / detach / new-workspace
+    this.bot.action(/^cli:(.+)$/, async (ctx) => {
+      const chatId = String(ctx.chat?.id);
+      const key = ctx.match[1];
+
+      if (key === 'off') {
+        this.clearCliAttach(chatId);
+        await ctx.answerCbQuery('Detached');
+        await ctx.reply('✅ Detached from CLI chat. Text now uses Control Plane SDK sessions.');
+        return;
+      }
+
+      if (key.startsWith('newws:')) {
+        const index = Number.parseInt(key.slice('newws:'.length), 10);
+        const paths = this.pendingCliNewWorkspaces.get(chatId);
+        if (!paths || Number.isNaN(index) || !paths[index]) {
+          await ctx.answerCbQuery('Invalid selection');
+          return;
+        }
+        await ctx.answerCbQuery('Creating CLI chat…');
+        await this.createAndAttachCliChat(chatId, paths[index]);
+        return;
+      }
+
+      const index = Number.parseInt(key, 10);
+      const chats = this.pendingCliChats.get(chatId);
+      if (!chats || Number.isNaN(index) || !chats[index]) {
+        await ctx.answerCbQuery('Invalid selection');
+        return;
+      }
+
+      const chat = chats[index];
+      const prev = this.cliAttaches.get(chatId);
+      this.setCliAttach(chatId, {
+        chatId: chat.chatId,
+        cwd: chat.cwd,
+        title: chat.title,
+        mode: prev?.mode ?? 'agent',
+      });
+
+      await ctx.answerCbQuery(`Attached: ${chat.title}`);
+      await ctx.reply(
+        `✅ Attached CLI chat *${chat.title}*\n` +
+          `Id: \`${chat.chatId}\`\n` +
+          `cwd: \`${chat.cwd}\`\n` +
+          `CLI mode: ${prev?.mode ?? 'agent'}\n\n` +
+          'Send text to continue this chat via `agent -p --resume`.\n' +
+          'Note: runs with --force (no tool approval prompts). /cli mode plan|ask|agent · /cli off to detach.',
+        { parse_mode: 'Markdown' }
+      );
     });
 
     // Ack quickly; run agent work in background so Telegraf handlerTimeout is not hit.
@@ -412,12 +675,304 @@ export class TelegramChannel implements Channel {
 
         logger.info({ chatId, textLength: text.length }, 'Telegram text message received');
 
+        const cliAttach = this.cliAttaches.get(chatId);
+        if (cliAttach && this.config.cliBridge.enabled) {
+          await ctx.sendChatAction('typing');
+          this.enqueueCliJob(chatId, cliAttach, text);
+          return;
+        }
+
         const sessionId = await this.resolveOrCreateSession(chatId, ctx);
         await ctx.sendChatAction('typing');
         await ctx.reply('⏳ Processing…');
         void this.processSessionMessage(sessionId, text, chatId);
       })
     );
+  }
+
+  private async replyCliStatus(ctx: Context<Update>, chatId: string): Promise<void> {
+    const attach = this.cliAttaches.get(chatId);
+    if (!attach) {
+      await ctx.reply('Mode: SDK sessions (no CLI attach).\nUse /cli to attach a Cursor CLI chat.');
+      return;
+    }
+    const pending = this.cliQueue.pendingCount(chatId);
+    const running = this.cliQueue.isRunning(chatId) || this.cliRunner.isRunning;
+    await ctx.reply(
+      `Mode: *CLI attached*\n` +
+        `Title: ${attach.title}\n` +
+        `Id: \`${attach.chatId}\`\n` +
+        `cwd: \`${attach.cwd}\`\n` +
+        `CLI mode: ${attach.mode}\n` +
+        `Run: ${running ? 'active' : 'idle'}` +
+        (pending ? ` · queue: ${pending}` : '') +
+        `\n\nTool approvals: none (--force). /cli mode plan|ask|agent · /cli off to detach.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  private async handleCliModeCommand(
+    ctx: Context<Update>,
+    chatId: string,
+    argLower: string
+  ): Promise<void> {
+    const attach = this.cliAttaches.get(chatId);
+    if (!attach) {
+      await ctx.reply('No CLI chat attached. Use /cli to attach one first.');
+      return;
+    }
+
+    let next: string | undefined;
+    if (argLower === 'plan' || argLower === 'ask' || argLower === 'agent') {
+      next = argLower;
+    } else if (argLower === 'mode') {
+      next = undefined;
+    } else if (argLower.startsWith('mode ')) {
+      next = argLower.slice('mode '.length).trim();
+    }
+
+    if (!next) {
+      await ctx.reply(
+        [
+          `CLI mode: ${attach.mode}`,
+          '',
+          'Usage:',
+          '/cli mode agent — default (can edit; --force)',
+          '/cli mode plan — read-only planning',
+          '/cli mode ask — read-only Q&A',
+          '',
+          'Shortcuts: /cli plan | /cli ask | /cli agent',
+          'Note: debug is not available via Cursor CLI headless.',
+        ].join('\n')
+      );
+      return;
+    }
+
+    if (next !== 'agent' && next !== 'plan' && next !== 'ask') {
+      await ctx.reply(
+        `Unknown mode "${next}". Use agent, plan, or ask.\nCurrent: ${attach.mode}`
+      );
+      return;
+    }
+
+    this.setCliMode(chatId, next);
+    const hint =
+      next === 'agent'
+        ? 'Next messages run in agent mode (edits allowed, --force).'
+        : `Next messages run with --mode ${next} (read-only).`;
+    await ctx.reply(`✅ CLI mode set to: ${next}\n${hint}`);
+  }
+
+  private async replyCliChatList(
+    ctx: Context<Update>,
+    chatId: string,
+    options: { listAll: boolean }
+  ): Promise<void> {
+    try {
+      const filter =
+        !options.listAll && this.config.cliBridge.filterByWorkspaceRoot
+          ? this.config.workspaceRoot
+          : undefined;
+      const chats = await listCliChats({
+        chatsRoot: this.config.cliBridge.chatsRoot,
+        cwdPrefix: filter,
+        limit: 25,
+      });
+
+      if (chats.length === 0) {
+        await ctx.reply(
+          `No Cursor CLI chats found` +
+            (filter ? ` under ${filter}` : '') +
+            `.\nStore: ${this.config.cliBridge.chatsRoot}\n\n` +
+            'Try `/cli all`, `/cli new`, or start a chat with `agent` in a terminal.'
+        );
+        return;
+      }
+
+      this.pendingCliChats.set(chatId, chats);
+      const buttons = chats.map((chat, i) => {
+        return [Markup.button.callback(formatCliChatLabel(chat), `cli:${i}`)];
+      });
+      buttons.push([Markup.button.callback('Detach CLI (/cli off)', 'cli:off')]);
+
+      const attached = this.cliAttaches.get(chatId);
+      const scope = filter ? `(filtered: ${filter})` : '(all chats)';
+      const header = attached
+        ? `Currently attached: ${attached.title}\n${scope}\n\nPick a Cursor CLI chat:`
+        : `Cursor CLI chats ${scope} — tap to attach:`;
+
+      await ctx.reply(header, Markup.inlineKeyboard(buttons));
+    } catch (err) {
+      logger.error({ err }, 'Failed to list CLI chats');
+      await ctx.reply('Could not list CLI chats.');
+    }
+  }
+
+  private async startCliNew(ctx: Context<Update>, chatId: string): Promise<void> {
+    const existing = this.cliAttaches.get(chatId);
+    if (existing?.cwd) {
+      await ctx.reply(`Creating CLI chat in \`${existing.cwd}\`…`, { parse_mode: 'Markdown' });
+      await this.createAndAttachCliChat(chatId, existing.cwd);
+      return;
+    }
+
+    const sessionId = this.activeSessions.get(chatId);
+    if (sessionId) {
+      const session = this.sessionManager.getSession(sessionId);
+      if (session?.repoPath) {
+        await ctx.reply(`Creating CLI chat in \`${session.repoPath}\`…`, {
+          parse_mode: 'Markdown',
+        });
+        await this.createAndAttachCliChat(chatId, session.repoPath);
+        return;
+      }
+    }
+
+    try {
+      const items = await listLocalWorkspaceItems(this.config);
+      if (items.length === 0) {
+        await ctx.reply(
+          `No workspaces under ${this.config.workspaceRoot}. Add a project folder or attach a CLI chat first.`
+        );
+        return;
+      }
+      const paths = items.map((i) => i.path);
+      this.pendingCliNewWorkspaces.set(chatId, paths);
+      const buttons = items.map((item, i) => {
+        const name = item.path.split(/[/\\]/).pop() || item.label;
+        return [Markup.button.callback(name.slice(0, 60), `cli:newws:${i}`)];
+      });
+      await ctx.reply(
+        'Pick a workspace for the new CLI chat:',
+        Markup.inlineKeyboard(buttons)
+      );
+    } catch (err) {
+      logger.error({ err }, 'Failed to list workspaces for /cli new');
+      await ctx.reply('Could not list workspaces for /cli new.');
+    }
+  }
+
+  private async createAndAttachCliChat(telegramChatId: string, cwd: string): Promise<void> {
+    try {
+      const { chatId } = await createCliChat({
+        agentBin: this.config.cliBridge.agentBin,
+        cwd,
+        apiKey: this.config.cursorApiKey || undefined,
+      });
+      const name = cwd.split(/[/\\]/).filter(Boolean).pop() || cwd;
+      const prev = this.cliAttaches.get(telegramChatId);
+      this.setCliAttach(telegramChatId, {
+        chatId,
+        cwd,
+        title: `New · ${name}`,
+        mode: prev?.mode ?? 'agent',
+      });
+      await this.sendMessage(
+        telegramChatId,
+        `✅ Created and attached CLI chat\nId: \`${chatId}\`\ncwd: \`${cwd}\`\nCLI mode: ${prev?.mode ?? 'agent'}\n\nSend text to start. /cli mode plan|ask|agent`
+      );
+    } catch (err) {
+      await this.sendMessage(
+        telegramChatId,
+        `❌ Failed to create CLI chat: ${formatTelegramError(err)}`
+      );
+    }
+  }
+
+  private enqueueCliJob(telegramChatId: string, attach: CliAttach, text: string): void {
+    const alreadyBusy =
+      this.cliQueue.isRunning(telegramChatId) || this.cliQueue.pendingCount(telegramChatId) > 0;
+
+    this.cliQueue.setProcessor(telegramChatId, async (job) => {
+      await this.runCliJob(job.payload);
+    });
+
+    const { position } = this.cliQueue.enqueue(telegramChatId, {
+      telegramChatId,
+      attach,
+      text,
+    });
+
+    if (alreadyBusy || position > 1) {
+      void this.sendMessage(
+        telegramChatId,
+        `⏳ Queued for CLI ${attach.title} (#${position})`
+      );
+    }
+  }
+
+  private async runCliJob(payload: CliJobPayload): Promise<void> {
+    const { telegramChatId, attach, text } = payload;
+    const lock = tryAcquireCliChatLock(attach.chatId);
+    if (!lock.ok) {
+      await this.sendMessage(
+        telegramChatId,
+        `❌ CLI chat locked by another cursor-cp process (pid ${lock.holder.pid}). Try again later.`
+      );
+      return;
+    }
+
+    let statusMsgId: number | undefined;
+    let accumulated = '';
+    let lastEdit = 0;
+    const interval = this.config.cliBridge.streamEditIntervalMs || 1200;
+
+    try {
+      const status = await this.bot.telegram.sendMessage(
+        telegramChatId,
+        `⏳ CLI: ${attach.title}…`
+      );
+      statusMsgId = status.message_id;
+
+      const result = await this.cliRunner.run({
+        agentBin: this.config.cliBridge.agentBin,
+        chatId: attach.chatId,
+        cwd: attach.cwd,
+        prompt: text,
+        mode: this.cliAttaches.get(telegramChatId)?.mode ?? attach.mode ?? 'agent',
+        force: this.config.cliBridge.force,
+        trust: this.config.cliBridge.trust,
+        timeoutMs: this.config.cliBridge.timeoutMs,
+        apiKey: this.config.cursorApiKey || undefined,
+        onChunk: (delta) => {
+          accumulated += delta;
+          const now = Date.now();
+          if (now - lastEdit < interval || !statusMsgId) return;
+          lastEdit = now;
+          const preview = truncateTelegram(accumulated || '…');
+          void this.bot.telegram
+            .editMessageText(telegramChatId, statusMsgId, undefined, preview)
+            .catch(() => {
+              /* ignore edit races */
+            });
+        },
+      });
+
+      const finalText = result.success
+        ? result.text
+        : `❌ ${result.error || 'CLI run failed'}${result.text ? `\n\n${result.text}` : ''}`;
+
+      if (statusMsgId) {
+        try {
+          await this.bot.telegram.editMessageText(
+            telegramChatId,
+            statusMsgId,
+            undefined,
+            truncateTelegram(finalText)
+          );
+          return;
+        } catch {
+          // fall through to sendMessage
+        }
+      }
+      await this.sendMessage(telegramChatId, finalText);
+      logger.info({ telegramChatId, cliChatId: attach.chatId }, 'CLI print run completed');
+    } catch (err) {
+      logger.error({ err, telegramChatId, cliChatId: attach.chatId }, 'CLI message failed');
+      await this.sendMessage(telegramChatId, `❌ ${formatTelegramError(err)}`);
+    } finally {
+      releaseCliChatLock(attach.chatId);
+    }
   }
 
   private async resolveOrCreateSession(
@@ -479,6 +1034,7 @@ export class TelegramChannel implements Channel {
   }
 
   async stop(): Promise<void> {
+    this.cliRunner.cancel();
     this.bot.stop();
     logger.info('Telegram bot stopped');
   }
@@ -600,4 +1156,9 @@ export class TelegramChannel implements Channel {
       .digest('hex')
       .slice(0, 12);
   }
+}
+
+function truncateTelegram(text: string, max = 4096): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1) + '…';
 }

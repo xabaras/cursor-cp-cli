@@ -6,14 +6,14 @@
 # `cursor-cp` launcher to ~/.local/bin.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/sanjaysingh/cursor-cp/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/xabaras/cursor-cp-cli/main/install.sh | bash
 #   bash install.sh [--version <ref>] [--dir <path>] [--help]
 #
 
 # Must run under bash (the one-liner pipes to `bash`). Fail clearly under sh/dash.
 if [ -z "${BASH_VERSION:-}" ]; then
     echo "This installer requires bash. Re-run it with:" >&2
-    echo "  curl -fsSL https://raw.githubusercontent.com/sanjaysingh/cursor-cp/main/install.sh | bash" >&2
+    echo "  curl -fsSL https://raw.githubusercontent.com/xabaras/cursor-cp-cli/main/install.sh | bash" >&2
     exit 1
 fi
 
@@ -21,7 +21,7 @@ set -euo pipefail
 
 # --- Settings ---------------------------------------------------------------
 
-readonly REPO_URL="https://github.com/sanjaysingh/cursor-cp.git"
+readonly REPO_URL="https://github.com/xabaras/cursor-cp-cli.git"
 readonly MIN_NODE_MAJOR=20
 
 INSTALL_DIR="${CURSOR_CP_INSTALL_DIR:-$HOME/.local/share/cursor-cp}"
