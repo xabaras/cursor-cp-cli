@@ -1,6 +1,6 @@
 /**
- * Cursor Control Plane - Entry Point
- * TypeScript + Cursor SDK Edition
+ * Cursor Control Plane + CLI - Entry Point
+ * TypeScript + Cursor SDK Edition (fork with CLI bridge)
  */
 
 import fastify from 'fastify';
@@ -27,6 +27,7 @@ import { ChannelRegistryImpl } from './channels/registry.js';
 import { registerApi } from './api/register-api.js';
 import { logger, getLogFilePath, createFastifyLoggerConfig, initLogging } from './util/logger.js';
 import { ensureProjectDirs, projectHomeDir } from './paths.js';
+import { APP_DISPLAY_NAME } from './cli/help.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -156,9 +157,10 @@ async function main() {
       'HTTP server listening'
     );
 
+    const bannerTitle = `  ${APP_DISPLAY_NAME}`.padEnd(58);
     console.log(`
 ╔══════════════════════════════════════════════════════════╗
-║         Cursor Control Plane - SDK Edition               ║
+║${bannerTitle}║
 ╠══════════════════════════════════════════════════════════╣
 ║  Server: http://${config.server.host}:${config.server.port}                          ║
 ║  Workspace: ${config.workspaceRoot}              ║

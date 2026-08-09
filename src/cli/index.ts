@@ -11,6 +11,7 @@ import {
   parseHelpTopic,
   printHelpForTopic,
   getVersion,
+  APP_DISPLAY_NAME,
 } from './help.js';
 
 const commands: Record<string, (args: string[]) => Promise<void>> = {
@@ -75,7 +76,7 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   },
 
   async version() {
-    console.log(getVersion());
+    console.log(`${APP_DISPLAY_NAME} v${getVersion()}`);
   },
 };
 
@@ -89,7 +90,7 @@ export async function runCLI(args: string[]): Promise<void> {
   const command = args[0] || 'serve';
 
   if (command === 'version' || command === '--version' || command === '-v') {
-    console.log(getVersion());
+    console.log(`${APP_DISPLAY_NAME} v${getVersion()}`);
     return;
   }
 

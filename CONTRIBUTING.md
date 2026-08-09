@@ -1,4 +1,4 @@
-# Contributing to Cursor Control Plane
+# Contributing to Cursor Control Plane + CLI
 
 Thank you for your interest in contributing! This document provides guidelines for contributing to the project.
 
@@ -6,8 +6,8 @@ Thank you for your interest in contributing! This document provides guidelines f
 
 1. **Fork and clone**
    ```bash
-   git clone https://github.com/your-username/cursor-cp.git
-   cd cursor-cp
+   git clone https://github.com/your-username/cursor-cp-cli.git
+   cd cursor-cp-cli
    ```
 
 2. **Install dependencies**

@@ -1,4 +1,4 @@
-# Cursor Control Plane CLI (`cursor-cp-cli`)
+# Cursor Control Plane + CLI (`cursor-cp-cli`)
 
 Fork of [sanjaysingh/cursor-cp](https://github.com/sanjaysingh/cursor-cp) that keeps the original web dashboard, REST API, and Telegram SDK sessions — and adds a **Cursor CLI bridge**: attach Telegram to existing local `agent` chats (`~/.cursor/chats`) via `agent -p --resume`.
 
@@ -26,7 +26,7 @@ Fork of [sanjaysingh/cursor-cp](https://github.com/sanjaysingh/cursor-cp) that k
 
 ## Overview
 
-Cursor Control Plane runs Cursor agent sessions for you and exposes them through a
+Cursor Control Plane + CLI runs Cursor agent sessions for you and exposes them through a
 real-time web dashboard, a REST API, and an optional Telegram bot. Sessions and
 their message history are persisted to SQLite, so they survive restarts and can be
 resumed automatically.
@@ -432,7 +432,7 @@ All endpoints are served under the `/api` prefix.
 
 ```http
 GET /api/health
-# → { "status": "ok", "version": "0.5.0" }
+# → { "status": "ok", "version": "0.5.1" }
 
 GET /api/dashboard-config
 # → { "web_channel_key": "web:default", "workspace_root": "...", "default_model": "...", "max_sessions": 5 }

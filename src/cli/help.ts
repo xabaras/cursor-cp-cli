@@ -6,6 +6,9 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { getProjectRoot } from '../config/home.js';
 
+/** User-facing product name for this fork. */
+export const APP_DISPLAY_NAME = 'Cursor Control Plane + CLI';
+
 export function isHelpFlag(arg: string): boolean {
   return arg === '--help' || arg === '-h';
 }
@@ -73,7 +76,7 @@ export function printHelpForTopic(topic: string | undefined): void {
 }
 
 export function printMainHelp(): void {
-  console.log(`Cursor Control Plane v${getVersion()}
+  console.log(`${APP_DISPLAY_NAME} v${getVersion()}
 
 Usage: cursor-cp [command] [options]
 

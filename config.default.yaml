@@ -1,4 +1,4 @@
-# Cursor Control Plane — default configuration
+# Cursor Control Plane + CLI — default configuration
 #
 # Copy config.default.yaml to config.yaml and edit your overrides there.
 # config.yaml is not committed (see .gitignore).

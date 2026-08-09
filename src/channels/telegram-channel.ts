@@ -28,7 +28,7 @@ import { createCliChat } from '../core/cli-create-chat.js';
 import { splitPlainText, markdownToTelegram, markdownToTelegramHtml } from '../format/telegram-format.js';
 import { createHash } from 'crypto';
 import { logger } from '../util/logger.js';
-import { getVersion } from '../cli/help.js';
+import { getVersion, APP_DISPLAY_NAME } from '../cli/help.js';
 import {
   TELEGRAM_HANDLER_TIMEOUT_MS,
   wrapTelegramHandler,
@@ -179,7 +179,7 @@ export class TelegramChannel implements Channel {
       { command: 'closeall', description: 'Close all sessions' },
       { command: 'repos', description: 'GitHub repos (gh)' },
       { command: 'workspaces', description: 'Local workspace folders' },
-      { command: 'version', description: 'Show Cursor Control Plane version' },
+      { command: 'version', description: `Show ${APP_DISPLAY_NAME} version` },
     ];
     if (this.config.cliBridge.enabled) {
       commands.splice(2, 0, {
@@ -235,7 +235,7 @@ export class TelegramChannel implements Channel {
       // Plain text: Telegram legacy Markdown breaks on backticks/tildes in paths like ~/.cursor/chats
       await ctx.reply(
         [
-          'Cursor Control Plane',
+          APP_DISPLAY_NAME,
           '',
           'Available commands:',
           '/sessions - List and connect to SDK sessions',
@@ -276,7 +276,7 @@ export class TelegramChannel implements Channel {
 
     // Version
     this.bot.command('version', async (ctx) => {
-      await ctx.reply(`Cursor Control Plane v${getVersion()}`);
+      await ctx.reply(`${APP_DISPLAY_NAME} v${getVersion()}`);
     });
 
     // Sessions list

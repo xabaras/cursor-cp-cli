@@ -1,5 +1,5 @@
 /**
- * Core domain types for Cursor Control Plane
+ * Core domain types for Cursor Control Plane + CLI
  */
 
 export type SessionStatus = 'open' | 'closed';

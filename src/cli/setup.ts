@@ -11,6 +11,7 @@ import { userConfigPath } from '../config/home.js';
 import { loadConfig, ensureUserConfig } from '../config/loader.js';
 import { ensureProjectDirs, projectHomeDir } from '../paths.js';
 import { ServiceController } from '../service/service-control.js';
+import { APP_DISPLAY_NAME } from './help.js';
 
 const API_KEY_HELP = 'https://cursor.com/dashboard/cloud-agents';
 
@@ -100,7 +101,7 @@ function writeConfigFile(values: SetupValues): string {
   }
   const merged = buildConfigObject(existing, values);
   const header = [
-    '# Cursor Control Plane — edit this file, then restart:',
+    '# Cursor Control Plane + CLI — edit this file, then restart:',
     '#   cursor-cp daemon restart   (background)',
     '#   cursor-cp                    (foreground)',
     '',
@@ -196,7 +197,7 @@ function maskKey(key: string): string {
 
 async function runInteractive(prompter: Prompter, existing: Existing): Promise<SetupValues> {
   console.log('');
-  console.log('Welcome to Cursor Control Plane setup.');
+  console.log(`Welcome to ${APP_DISPLAY_NAME} setup.`);
   console.log('Press Enter to accept the [default] shown in brackets.');
   console.log('');
 
