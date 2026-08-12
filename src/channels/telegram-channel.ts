@@ -951,22 +951,51 @@ export class TelegramChannel implements Channel {
       const finalText = result.success
         ? result.text
         : `❌ ${result.error || 'CLI run failed'}${result.text ? `\n\n${result.text}` : ''}`;
+      const finalPreview = truncateTelegram(finalText);
 
       if (statusMsgId) {
+        const alreadyShown =
+          truncateTelegram(accumulated || '') === finalPreview ||
+          accumulated.trim() === finalText.trim();
+        if (alreadyShown) {
+          logger.info(
+            { telegramChatId, cliChatId: attach.chatId, via: 'stream-preview' },
+            'CLI print run completed'
+          );
+          return;
+        }
+
         try {
           await this.bot.telegram.editMessageText(
             telegramChatId,
             statusMsgId,
             undefined,
-            truncateTelegram(finalText)
+            finalPreview
+          );
+          logger.info(
+            { telegramChatId, cliChatId: attach.chatId, via: 'edit' },
+            'CLI print run completed'
           );
           return;
-        } catch {
-          // fall through to sendMessage
+        } catch (err) {
+          if (isTelegramMessageNotModified(err)) {
+            logger.info(
+              { telegramChatId, cliChatId: attach.chatId, via: 'edit-unchanged' },
+              'CLI print run completed'
+            );
+            return;
+          }
+          logger.warn(
+            { err, telegramChatId, cliChatId: attach.chatId },
+            'Final CLI status edit failed; sending as new message'
+          );
         }
       }
       await this.sendMessage(telegramChatId, finalText);
-      logger.info({ telegramChatId, cliChatId: attach.chatId }, 'CLI print run completed');
+      logger.info(
+        { telegramChatId, cliChatId: attach.chatId, via: 'send' },
+        'CLI print run completed'
+      );
     } catch (err) {
       logger.error({ err, telegramChatId, cliChatId: attach.chatId }, 'CLI message failed');
       await this.sendMessage(telegramChatId, `❌ ${formatTelegramError(err)}`);
@@ -1161,4 +1190,17 @@ export class TelegramChannel implements Channel {
 function truncateTelegram(text: string, max = 4096): string {
   if (text.length <= max) return text;
   return text.slice(0, max - 1) + '…';
+}
+
+/** Telegram returns this when editMessageText content matches the current message. */
+function isTelegramMessageNotModified(err: unknown): boolean {
+  const parts: string[] = [];
+  if (err instanceof Error) parts.push(err.message);
+  if (err && typeof err === 'object') {
+    const o = err as { description?: unknown; response?: { description?: unknown } };
+    if (o.description != null) parts.push(String(o.description));
+    if (o.response?.description != null) parts.push(String(o.response.description));
+  }
+  parts.push(String(err ?? ''));
+  return parts.some((p) => /message is not modified/i.test(p));
 }
