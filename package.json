@@ -1,6 +1,6 @@
 {
   "name": "cursor-cp-cli",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Fork of cursor-cp with a Telegram bridge to existing Cursor CLI chats (agent -p --resume), plus the original web/Telegram SDK control plane",
   "type": "module",
   "license": "MIT",

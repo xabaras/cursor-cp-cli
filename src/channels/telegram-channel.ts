@@ -954,8 +954,9 @@ export class TelegramChannel implements Channel {
       const finalPreview = truncateTelegram(finalText);
       const notifyOnComplete = this.config.cliBridge.notifyOnComplete !== false;
 
-      // Default: delete streamed preview and send a new message so Telegram notifies.
+      // Default: send a new message (notifies), then delete the stream preview.
       if (notifyOnComplete) {
+        await this.sendMessage(telegramChatId, finalText);
         if (statusMsgId) {
           try {
             await this.bot.telegram.deleteMessage(telegramChatId, statusMsgId);
@@ -966,9 +967,15 @@ export class TelegramChannel implements Channel {
             );
           }
         }
-        await this.sendMessage(telegramChatId, finalText);
         logger.info(
-          { telegramChatId, cliChatId: attach.chatId, via: 'notify-send' },
+          {
+            telegramChatId,
+            cliChatId: attach.chatId,
+            via: 'notify-send',
+            textLength: finalText.length,
+            resultLen: result.resultLen,
+            assistantLen: result.assistantLen,
+          },
           'CLI print run completed'
         );
         return;
@@ -979,11 +986,15 @@ export class TelegramChannel implements Channel {
         const alreadyShown =
           truncateTelegram(accumulated || '') === finalPreview ||
           accumulated.trim() === finalText.trim();
+        const completeMeta = {
+          telegramChatId,
+          cliChatId: attach.chatId,
+          textLength: finalText.length,
+          resultLen: result.resultLen,
+          assistantLen: result.assistantLen,
+        };
         if (alreadyShown) {
-          logger.info(
-            { telegramChatId, cliChatId: attach.chatId, via: 'stream-preview' },
-            'CLI print run completed'
-          );
+          logger.info({ ...completeMeta, via: 'stream-preview' }, 'CLI print run completed');
           return;
         }
 
@@ -994,17 +1005,11 @@ export class TelegramChannel implements Channel {
             undefined,
             finalPreview
           );
-          logger.info(
-            { telegramChatId, cliChatId: attach.chatId, via: 'edit' },
-            'CLI print run completed'
-          );
+          logger.info({ ...completeMeta, via: 'edit' }, 'CLI print run completed');
           return;
         } catch (err) {
           if (isTelegramMessageNotModified(err)) {
-            logger.info(
-              { telegramChatId, cliChatId: attach.chatId, via: 'edit-unchanged' },
-              'CLI print run completed'
-            );
+            logger.info({ ...completeMeta, via: 'edit-unchanged' }, 'CLI print run completed');
             return;
           }
           logger.warn(
@@ -1015,7 +1020,14 @@ export class TelegramChannel implements Channel {
       }
       await this.sendMessage(telegramChatId, finalText);
       logger.info(
-        { telegramChatId, cliChatId: attach.chatId, via: 'send' },
+        {
+          telegramChatId,
+          cliChatId: attach.chatId,
+          via: 'send',
+          textLength: finalText.length,
+          resultLen: result.resultLen,
+          assistantLen: result.assistantLen,
+        },
         'CLI print run completed'
       );
     } catch (err) {

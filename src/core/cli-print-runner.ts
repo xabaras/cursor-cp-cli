@@ -27,6 +27,19 @@ export interface CliPrintRunResult {
   text: string;
   error?: string;
   exitCode: number | null;
+  /** Length of terminal `result` event text (before prefer-longer). */
+  resultLen?: number;
+  /** Length of accumulated assistant segment text (before prefer-longer). */
+  assistantLen?: number;
+}
+
+/** Prefer the longer of CLI `result` vs accumulated assistant segments. */
+export function preferLongerCliText(resultText: string, assistantText: string): string {
+  const a = assistantText.trim();
+  const r = resultText.trim();
+  if (!r) return a;
+  if (!a) return r;
+  return a.length > r.length ? a : r;
 }
 
 export class CliPrintRunner {
@@ -129,13 +142,17 @@ export class CliPrintRunner {
     rl.close();
     this.active = null;
 
-    const text = (resultText || assistantText).trim();
+    const resultLen = resultText.trim().length;
+    const assistantLen = assistantText.trim().length;
+    const text = preferLongerCliText(resultText, assistantText);
     if (timedOut) {
       return {
         success: false,
         text,
         error: `CLI run timed out after ${timeoutMs}ms`,
         exitCode: code,
+        resultLen,
+        assistantLen,
       };
     }
 
@@ -145,6 +162,8 @@ export class CliPrintRunner {
         text,
         error: 'CLI run cancelled',
         exitCode: code,
+        resultLen,
+        assistantLen,
       };
     }
 
@@ -155,6 +174,8 @@ export class CliPrintRunner {
         text: '',
         error: errTail || `CLI exited with code ${code}`,
         exitCode: code,
+        resultLen,
+        assistantLen,
       };
     }
 
@@ -162,6 +183,8 @@ export class CliPrintRunner {
       success: true,
       text: text || '(no output)',
       exitCode: code,
+      resultLen,
+      assistantLen,
     };
   }
 
