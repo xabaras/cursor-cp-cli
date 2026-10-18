@@ -60,6 +60,7 @@ cli_bridge:
   filter_by_workspace_root: true
   timeout_ms: 600000
   stream_edit_interval_ms: 1200
+  notify_on_complete: true  # default; false = edit-only (no Telegram OS notification)
 ```
 
 Then restart the daemon (`cursor-cp daemon restart`).
@@ -69,8 +70,12 @@ Then restart the daemon (`cursor-cp daemon restart`).
 1. `/cli` lists chats under `~/.cursor/chats` (optionally filtered by `workspace_root`).
 2. Attaching a chat routes subsequent plain-text Telegram messages to  
    `agent -p --resume <chatId> --workspace <cwd> --trust --force`.
-3. Without a CLI attach, plain text still uses **SDK sessions** (`/sessions`, `/workspaces`, …).
-4. Avoid using the **same** CLI chat in the terminal TUI and Telegram at the same time.
+3. While the agent runs, Telegram shows a **streaming preview** updated with `editMessageText`.
+4. When the run finishes (default `notify_on_complete: true`), that preview is deleted and the
+   full reply is sent as a **new** message so Telegram can fire an OS notification.
+   Set `notify_on_complete: false` to keep the edit-only behaviour (no notification).
+5. Without a CLI attach, plain text still uses **SDK sessions** (`/sessions`, `/workspaces`, …).
+6. Avoid using the **same** CLI chat in the terminal TUI and Telegram at the same time.
 
 ### Telegram CLI commands
 
@@ -88,7 +93,8 @@ Then restart the daemon (`cursor-cp daemon restart`).
 
 **Modes:** `agent` (default, can edit; uses `--force`), `plan` and `ask` (read-only via `agent --mode`). Cursor IDE **debug** mode is not available in headless CLI.
 
-Jobs for the same Telegram chat are queued FIFO. Replies stream via Telegram message edits.
+Jobs for the same Telegram chat are queued FIFO. Replies stream via Telegram message edits,
+then (by default) arrive as a final `sendMessage` so you get a notification when Cursor is done.
 
 ## Quick Start
 
@@ -432,7 +438,7 @@ All endpoints are served under the `/api` prefix.
 
 ```http
 GET /api/health
-# → { "status": "ok", "version": "0.5.2" }
+# → { "status": "ok", "version": "0.5.3" }
 
 GET /api/dashboard-config
 # → { "web_channel_key": "web:default", "workspace_root": "...", "default_model": "...", "max_sessions": 5 }

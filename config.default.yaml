@@ -43,3 +43,5 @@ cli_bridge:
   filter_by_workspace_root: true
   timeout_ms: 600000
   stream_edit_interval_ms: 1200
+  # After live stream edits, delete preview and sendMessage so Telegram notifies
+  notify_on_complete: true

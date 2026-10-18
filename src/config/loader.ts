@@ -60,6 +60,7 @@ export const RawConfigSchema = z.object({
       filter_by_workspace_root: z.boolean().default(true),
       timeout_ms: z.number().default(600_000),
       stream_edit_interval_ms: z.number().default(1200),
+      notify_on_complete: z.boolean().default(true),
     })
     .default({
       enabled: false,
@@ -70,6 +71,7 @@ export const RawConfigSchema = z.object({
       filter_by_workspace_root: true,
       timeout_ms: 600_000,
       stream_edit_interval_ms: 1200,
+      notify_on_complete: true,
     }),
 });
 
@@ -182,6 +184,7 @@ function rawToAppConfig(raw: RawConfig): AppConfig {
       filterByWorkspaceRoot: raw.cli_bridge.filter_by_workspace_root,
       timeoutMs: raw.cli_bridge.timeout_ms,
       streamEditIntervalMs: raw.cli_bridge.stream_edit_interval_ms,
+      notifyOnComplete: raw.cli_bridge.notify_on_complete,
     },
   };
 }

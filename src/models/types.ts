@@ -95,6 +95,11 @@ export interface CliBridgeConfig {
   timeoutMs: number;
   /** Throttle interval for live Telegram message edits during CLI runs */
   streamEditIntervalMs: number;
+  /**
+   * When true (default), after streaming via edits the preview message is deleted
+   * and the final reply is sent as a new message so Telegram can notify.
+   */
+  notifyOnComplete: boolean;
 }
 
 export interface AppConfig {

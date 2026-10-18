@@ -952,7 +952,29 @@ export class TelegramChannel implements Channel {
         ? result.text
         : `❌ ${result.error || 'CLI run failed'}${result.text ? `\n\n${result.text}` : ''}`;
       const finalPreview = truncateTelegram(finalText);
+      const notifyOnComplete = this.config.cliBridge.notifyOnComplete !== false;
 
+      // Default: delete streamed preview and send a new message so Telegram notifies.
+      if (notifyOnComplete) {
+        if (statusMsgId) {
+          try {
+            await this.bot.telegram.deleteMessage(telegramChatId, statusMsgId);
+          } catch (err) {
+            logger.debug(
+              { err, telegramChatId, statusMsgId },
+              'Could not delete CLI stream preview message'
+            );
+          }
+        }
+        await this.sendMessage(telegramChatId, finalText);
+        logger.info(
+          { telegramChatId, cliChatId: attach.chatId, via: 'notify-send' },
+          'CLI print run completed'
+        );
+        return;
+      }
+
+      // notify_on_complete: false — finalize in-place via edit (no OS notification)
       if (statusMsgId) {
         const alreadyShown =
           truncateTelegram(accumulated || '') === finalPreview ||
