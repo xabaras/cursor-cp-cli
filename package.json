@@ -8,13 +8,13 @@
   "contributors": [
     "xabaras"
   ],
-  "homepage": "https://github.com/xabaras/cursor-cp-cli#readme",
+  "homepage": "https://github.com/xabaras/telegram-cursor-cli#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/xabaras/cursor-cp-cli.git"
+    "url": "git+https://github.com/xabaras/telegram-cursor-cli.git"
   },
   "bugs": {
-    "url": "https://github.com/xabaras/cursor-cp-cli/issues"
+    "url": "https://github.com/xabaras/telegram-cursor-cli/issues"
   },
   "keywords": [
     "telegram-cursor-cli",

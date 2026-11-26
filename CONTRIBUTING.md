@@ -6,8 +6,8 @@ Thank you for your interest in contributing! This document provides guidelines f
 
 1. **Fork and clone**
    ```bash
-   git clone https://github.com/your-username/cursor-cp-cli.git
-   cd cursor-cp-cli
+   git clone https://github.com/your-username/telegram-cursor-cli.git
+   cd telegram-cursor-cli
    ```
 
 2. **Install dependencies**

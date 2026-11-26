@@ -4,9 +4,9 @@ Fork of [sanjaysingh/cursor-cp](https://github.com/sanjaysingh/cursor-cp) focuse
 
 It still ships the original **web dashboard**, **REST API**, and **Telegram SDK sessions** inherited from Sanjay Singh’s Cursor Control Plane, but active development targets the CLI bridge. Those inherited surfaces are kept working as-is and are **not** expected to receive further feature updates in this fork.
 
-**Current version: 0.6.2** · CLI command remains `cursor-cp` · GitHub repo: [xabaras/cursor-cp-cli](https://github.com/xabaras/cursor-cp-cli)
+**Current version: 0.6.2** · CLI command remains `cursor-cp` · GitHub repo: [xabaras/telegram-cursor-cli](https://github.com/xabaras/telegram-cursor-cli)
 
-[![CI](https://github.com/xabaras/cursor-cp-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xabaras/cursor-cp-cli/actions/workflows/ci.yml)
+[![CI](https://github.com/xabaras/telegram-cursor-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xabaras/telegram-cursor-cli/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 
@@ -127,7 +127,7 @@ Switching attach does **not** cancel other running jobs.
 ### Install (macOS / Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/xabaras/cursor-cp-cli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xabaras/telegram-cursor-cli/main/install.sh | bash
 ```
 
 That's the supported install method. It performs a per-user install (no `sudo`,
@@ -159,7 +159,7 @@ Re-run the wizard anytime with `cursor-cp setup`, and verify your install with
 ### One-line installer
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/xabaras/cursor-cp-cli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xabaras/telegram-cursor-cli/main/install.sh | bash
 ```
 
 On an interactive terminal the installer prints next steps; run `cursor-cp setup`
@@ -169,7 +169,7 @@ Pass options through the pipe with `bash -s --`:
 
 ```bash
 # Install a specific tag/branch, or to a custom directory
-curl -fsSL https://raw.githubusercontent.com/xabaras/cursor-cp-cli/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/xabaras/telegram-cursor-cli/main/install.sh \
   | bash -s -- --version main --dir "$HOME/apps/cursor-cp"
 ```
 
@@ -423,8 +423,8 @@ static/         # Web dashboard (Alpine.js + Tailwind via CDN)
 ## Development
 
 ```bash
-git clone https://github.com/xabaras/cursor-cp-cli.git
-cd cursor-cp-cli
+git clone https://github.com/xabaras/telegram-cursor-cli.git
+cd telegram-cursor-cli
 npm install
 cp config.default.yaml config.yaml   # then set cursor.api_key
 npm run dev
@@ -575,7 +575,7 @@ Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md)
 opening a pull request. All pull requests must pass lint, type check, tests, and build
 in CI.
 
-Bug reports and PRs for this fork: [xabaras/cursor-cp-cli](https://github.com/xabaras/cursor-cp-cli).
+Bug reports and PRs for this fork: [xabaras/telegram-cursor-cli](https://github.com/xabaras/telegram-cursor-cli).
 Upstream project: [sanjaysingh/cursor-cp](https://github.com/sanjaysingh/cursor-cp).
 
 ## License
@@ -583,4 +583,4 @@ Upstream project: [sanjaysingh/cursor-cp](https://github.com/sanjaysingh/cursor-
 [MIT](LICENSE) © Sanjay Singh
 
 Additional modifications in this fork © contributors to
-[xabaras/cursor-cp-cli](https://github.com/xabaras/cursor-cp-cli).
+[xabaras/telegram-cursor-cli](https://github.com/xabaras/telegram-cursor-cli).
