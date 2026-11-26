@@ -12,11 +12,9 @@ It still ships the original **web dashboard**, **REST API**, and **Telegram SDK 
 
 > **Upstream:** based on Cursor Control Plane by Sanjay Singh ([MIT](LICENSE)). This fork’s roadmap is the Telegram ↔ Cursor CLI integration; for SDK/dashboard evolution, see upstream.
 
-### Recent changes (0.6.2)
+### Recent changes
 
-- Off-attach completion button label is **Switch to …** (English, matching the rest of the bot UI)
-
-Full history: [CHANGELOG.md](CHANGELOG.md).
+See [Changelog](#changelog) below for the last three releases, or [CHANGELOG.md](CHANGELOG.md) for the full history.
 
 ## Table of Contents
 
@@ -529,7 +527,26 @@ Only users listed in `channels.telegram.allowed_user_ids` are allowed to interac
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for the full release history. Latest: **0.6.2**.
+Latest three releases (full history: [CHANGELOG.md](CHANGELOG.md)):
+
+### 0.6.2 — 2026-11-26
+
+- Off-attach completion button label: **Switch to …** (was Italian “Passa a …”), consistent with the English bot UI.
+
+### 0.6.1 — 2026-11-26
+
+- `/cli cwd` (aliases: `/cli workspace`, `/cli workdir`) to change the workspace of the attached CLI chat for subsequent runs.
+- Soft product rebrand to **Telegram Cursor CLI** (display / npm `telegram-cursor-cli`; `cursor-cp` command and paths unchanged).
+- `CHANGELOG.md` and version / recent-changes section in the README.
+- README documents parallel CLI jobs, attach switching, and the **Switch to …** completion button.
+
+### 0.6.0 — 2026-11-26
+
+- Parallel CLI jobs across different chats (FIFO queue per chat).
+- Stream updates only while that CLI chat is attached; background jobs keep running.
+- Off-attach completion message with chat id and **Switch to …** button (re-attaches and re-shows the reply).
+- `/cli status` lists active/queued jobs; `/cli cancel` / `/cli cancel all`.
+- Default `cli_bridge.timeout_ms` is `0` (no hard kill on long agent runs).
 
 ## Troubleshooting
 
