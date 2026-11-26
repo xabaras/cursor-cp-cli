@@ -7,7 +7,7 @@ import { resolve } from 'path';
 import { getProjectRoot } from '../config/home.js';
 
 /** User-facing product name for this fork. */
-export const APP_DISPLAY_NAME = 'Cursor Control Plane + CLI';
+export const APP_DISPLAY_NAME = 'Telegram Cursor CLI';
 
 export function isHelpFlag(arg: string): boolean {
   return arg === '--help' || arg === '-h';

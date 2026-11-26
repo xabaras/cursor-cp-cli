@@ -67,7 +67,7 @@ describe('printHelpForTopic', () => {
 
   it('prints main help', () => {
     printMainHelp();
-    expect(logs.join('\n')).toContain('Cursor Control Plane + CLI');
+    expect(logs.join('\n')).toContain('Telegram Cursor CLI');
     expect(logs.join('\n')).toContain('daemon');
   });
 

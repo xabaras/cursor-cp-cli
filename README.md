@@ -1,12 +1,24 @@
-# Cursor Control Plane + CLI (`cursor-cp-cli`)
+# Telegram Cursor CLI (`telegram-cursor-cli`)
 
-Fork of [sanjaysingh/cursor-cp](https://github.com/sanjaysingh/cursor-cp) that keeps the original web dashboard, REST API, and Telegram SDK sessions — and adds a **Cursor CLI bridge**: attach Telegram to existing local `agent` chats (`~/.cursor/chats`) via `agent -p --resume`.
+Fork of [sanjaysingh/cursor-cp](https://github.com/sanjaysingh/cursor-cp) focused on a **Cursor CLI bridge**: attach Telegram to existing local `agent` chats (`~/.cursor/chats`) via `agent -p --resume`.
+
+It still ships the original **web dashboard**, **REST API**, and **Telegram SDK sessions** inherited from Sanjay Singh’s Cursor Control Plane, but active development targets the CLI bridge. Those inherited surfaces are kept working as-is and are **not** expected to receive further feature updates in this fork.
+
+**Current version: 0.6.1** · CLI command remains `cursor-cp` · GitHub repo: [xabaras/cursor-cp-cli](https://github.com/xabaras/cursor-cp-cli)
 
 [![CI](https://github.com/xabaras/cursor-cp-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xabaras/cursor-cp-cli/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 
-> **Upstream:** this project is based on Cursor Control Plane by Sanjay Singh ([MIT](LICENSE)). Differences from upstream are focused on the Telegram ↔ Cursor CLI integration documented below.
+> **Upstream:** based on Cursor Control Plane by Sanjay Singh ([MIT](LICENSE)). This fork’s roadmap is the Telegram ↔ Cursor CLI integration; for SDK/dashboard evolution, see upstream.
+
+### Recent changes (0.6.1)
+
+- Soft rebrand to **Telegram Cursor CLI** (display / npm name; paths and `cursor-cp` unchanged)
+- `/cli cwd` — change workspace for the attached CLI chat (next messages)
+- README documents parallel jobs and switching chats mid-run
+
+Full history: [CHANGELOG.md](CHANGELOG.md).
 
 ## Table of Contents
 
@@ -21,28 +33,30 @@ Fork of [sanjaysingh/cursor-cp](https://github.com/sanjaysingh/cursor-cp) that k
 - [API Reference](#api-reference)
 - [Telegram Bot](#telegram-bot)
 - [Troubleshooting](#troubleshooting)
+- [Changelog](#changelog)
 - [Contributing](#contributing)
 - [License](#license)
 
 ## Overview
 
-Cursor Control Plane + CLI runs Cursor agent sessions for you and exposes them through a
-real-time web dashboard, a REST API, and an optional Telegram bot. Sessions and
-their message history are persisted to SQLite, so they survive restarts and can be
-resumed automatically.
+**Telegram Cursor CLI** is built around continuing **existing Cursor CLI chats** from
+Telegram (created with the `agent` TUI), without going through the SDK session path.
+Different CLI chats can run **in parallel**; you can switch the attached chat anytime
+while background jobs keep going.
 
-This fork additionally lets Telegram continue **existing Cursor CLI chats** on your
-machine (created with the `agent` TUI), without going through the SDK session path.
+The fork also retains the upstream **web dashboard**, **REST API**, and **Telegram SDK
+sessions** (SQLite-backed history). They remain available, but this project’s focus —
+and future work — is the CLI bridge, not extending those inherited features.
 
 ### Features
 
-- **Web dashboard** — real-time chat UI with WebSocket streaming
-- **Telegram bot** — drive agents from chat, with inline buttons for sessions, models, and repos
-- **Cursor CLI bridge** — attach Telegram to local CLI chats (`/cli`), with parallel jobs, stream-on-attach, and live streaming
-- **Persistent sessions** — SQLite-backed session, message, and participant storage
-- **Multi-repository support** — work across local workspaces and clone GitHub repos via the `gh` CLI
-- **Model selection** — choose any model the Cursor SDK exposes, per session or as a default
-- **REST API** — full programmatic access to every feature
+- **Cursor CLI bridge** (primary) — attach Telegram to local CLI chats (`/cli`); parallel jobs; switch attach mid-run; stream only while attached; **Passa a …** on off-attach completion
+- **Web dashboard** (inherited) — real-time chat UI with WebSocket streaming
+- **Telegram SDK sessions** (inherited) — drive SDK agents from chat, with inline buttons for sessions, models, and repos
+- **Persistent sessions** (inherited) — SQLite-backed session, message, and participant storage
+- **Multi-repository support** (inherited) — work across local workspaces and clone GitHub repos via the `gh` CLI
+- **Model selection** (inherited) — choose any model the Cursor SDK exposes, per session or as a default
+- **REST API** (inherited) — programmatic access to the control-plane features
 
 ## Cursor CLI bridge
 
@@ -71,15 +85,17 @@ Then restart the daemon (`cursor-cp daemon restart`).
 2. Attaching a chat routes subsequent plain-text Telegram messages to  
    `agent -p --resume <chatId> --workspace <cwd> --trust --force`.
 3. Different CLI chats can run **in parallel**. The same CLI chat is still queued FIFO.
-4. Live streaming updates only while that CLI chat is **attached**. Switch attach freely;
-   background jobs keep running.
+4. Live streaming updates only while that CLI chat is **attached**. Switch attach freely
+   (via `/cli` or **Passa a …**); other jobs keep running in the background.
 5. When a job finishes off-attach, Telegram gets the final reply (with chat id) plus a
-   **Passa a …** button to re-attach that chat.
+   **Passa a …** button that re-attaches that chat and re-shows the reply.
 6. When the run finishes while attached (default `notify_on_complete: true`), the stream
    preview is deleted and the full reply is a **new** message (OS notification).
    Set `notify_on_complete: false` to keep edit-only behaviour.
-7. Without a CLI attach, plain text still uses **SDK sessions** (`/sessions`, `/workspaces`, …).
-8. Avoid using the **same** CLI chat in the terminal TUI and Telegram at the same time.
+7. `/cli cwd` changes the workspace for the **attached** chat (applies to the next message;
+   blocked while that chat has a run in progress).
+8. Without a CLI attach, plain text still uses **SDK sessions** (`/sessions`, `/workspaces`, …).
+9. Avoid using the **same** CLI chat in the terminal TUI and Telegram at the same time.
 
 ### Telegram CLI commands
 
@@ -88,6 +104,7 @@ Then restart the daemon (`cursor-cp daemon restart`).
 | `/cli` | List and attach a CLI chat (filtered by `workspace_root` when enabled) |
 | `/cli all` | List all CLI chats |
 | `/cli new` | Create and attach a new CLI chat |
+| `/cli cwd` | Change workspace for the attached CLI chat (aliases: `workspace`, `workdir`) |
 | `/cli mode [agent\|plan\|ask]` | Show or set CLI execution mode (persisted with the attach) |
 | `/cli plan` / `/cli ask` / `/cli agent` | Shortcuts for `/cli mode` |
 | `/cli cancel` | Stop the attached CLI chat run (and clear its queue) |
@@ -98,6 +115,7 @@ Then restart the daemon (`cursor-cp daemon restart`).
 **Modes:** `agent` (default, can edit; uses `--force`), `plan` and `ask` (read-only via `agent --mode`). Cursor IDE **debug** mode is not available in headless CLI.
 
 Long runs do not time out by default (`timeout_ms: 0`); use `/cli cancel` to stop them.
+Switching attach does **not** cancel other running jobs.
 
 ## Quick Start
 
@@ -441,7 +459,7 @@ All endpoints are served under the `/api` prefix.
 
 ```http
 GET /api/health
-# → { "status": "ok", "version": "0.6.0" }
+# → { "status": "ok", "version": "0.6.1" }
 
 GET /api/dashboard-config
 # → { "web_channel_key": "web:default", "workspace_root": "...", "default_model": "...", "max_sessions": 5 }
@@ -507,10 +525,14 @@ Set `channels.telegram.enabled: true`, add `bot_token` and your user ID(s) in
 | `/repos` | Browse and clone GitHub repos (`gh`) |
 | `/workspaces` | Browse local workspace folders |
 | `/cli` … | Cursor CLI bridge (see [Cursor CLI bridge](#cursor-cli-bridge)) |
-| `/version` | Show Control Plane version |
+| `/version` | Show Telegram Cursor CLI version |
 
 Any other text is sent to the attached CLI chat (if any) or the active SDK session.
 Only users listed in `channels.telegram.allowed_user_ids` are allowed to interact with the bot.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the full release history. Latest: **0.6.1**.
 
 ## Troubleshooting
 

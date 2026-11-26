@@ -301,7 +301,7 @@ export class ServiceController {
     const servicePath = resolveServicePath();
 
     const service = `[Unit]
-Description=Cursor Control Plane + CLI
+Description=Telegram Cursor CLI
 After=network.target
 
 [Service]

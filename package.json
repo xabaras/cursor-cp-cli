@@ -1,7 +1,7 @@
 {
-  "name": "cursor-cp-cli",
-  "version": "0.6.0",
-  "description": "Fork of cursor-cp with a Telegram bridge to existing Cursor CLI chats (agent -p --resume), plus the original web/Telegram SDK control plane",
+  "name": "telegram-cursor-cli",
+  "version": "0.6.1",
+  "description": "Telegram Cursor CLI — bridge Telegram to local Cursor CLI chats (agent -p --resume), plus the upstream web/Telegram SDK control plane",
   "type": "module",
   "license": "MIT",
   "author": "Sanjay Singh",
@@ -17,12 +17,13 @@
     "url": "https://github.com/xabaras/cursor-cp-cli/issues"
   },
   "keywords": [
+    "telegram-cursor-cli",
     "cursor",
     "cursor-sdk",
     "cursor-cli",
     "agent",
-    "control-plane",
     "telegram-bot",
+    "control-plane",
     "fastify",
     "typescript"
   ],

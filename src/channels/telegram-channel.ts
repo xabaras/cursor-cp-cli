@@ -85,6 +85,8 @@ export class TelegramChannel implements Channel {
   private pendingCliChats: Map<string, CliChatMeta[]> = new Map();
   // Pending workspaces for /cli new
   private pendingCliNewWorkspaces: Map<string, string[]> = new Map();
+  // Pending workspaces for /cli cwd
+  private pendingCliCwdWorkspaces: Map<string, string[]> = new Map();
   // Active CLI attach per Telegram chat (overrides SDK routing for text)
   private cliAttaches: Map<string, CliAttach> = new Map();
   private cliRunner = new CliPrintRunner();
@@ -201,7 +203,7 @@ export class TelegramChannel implements Channel {
     if (this.config.cliBridge.enabled) {
       commands.splice(2, 0, {
         command: 'cli',
-        description: 'CLI chats: list/mode/new/cancel/off (see /start)',
+        description: 'CLI chats: list/mode/cwd/new/cancel/off (see /start)',
       });
     }
     return commands;
@@ -270,6 +272,7 @@ export class TelegramChannel implements Channel {
                 '/cli - List and attach a CLI chat (filtered by workspace_root)',
                 '/cli all - List all CLI chats',
                 '/cli new - Create and attach a new CLI chat',
+                '/cli cwd - Change workspace for the attached CLI chat',
                 '/cli mode [agent|plan|ask] - Show or set CLI execution mode',
                 '/cli plan|/cli ask|/cli agent - Shortcuts for /cli mode',
                 '/cli cancel - Stop the attached CLI chat run',
@@ -279,6 +282,7 @@ export class TelegramChannel implements Channel {
                 '',
                 'With a CLI chat attached, plain text continues that chat',
                 '(queued per chat; different chats can run in parallel).',
+                'Switch attach anytime; background jobs keep running.',
                 'Long runs do not time out by default; use /cli cancel to stop.',
                 'plan/ask are read-only CLI modes; agent can edit (default).',
                 'Without CLI attach, plain text uses SDK sessions.',
@@ -485,7 +489,7 @@ export class TelegramChannel implements Channel {
           return;
         }
         this.clearCliAttach(chatId);
-        await ctx.reply('✅ Detached from CLI chat. Text now uses Control Plane SDK sessions.');
+        await ctx.reply('✅ Detached from CLI chat. Text now uses SDK sessions.');
         return;
       }
 
@@ -512,6 +516,11 @@ export class TelegramChannel implements Channel {
 
       if (argLower === 'new') {
         await this.startCliNew(ctx, chatId);
+        return;
+      }
+
+      if (argLower === 'cwd' || argLower === 'workspace' || argLower === 'workdir') {
+        await this.startCliCwd(ctx, chatId);
         return;
       }
 
@@ -622,7 +631,7 @@ export class TelegramChannel implements Channel {
       if (key === 'off') {
         this.clearCliAttach(chatId);
         await ctx.answerCbQuery('Detached');
-        await ctx.reply('✅ Detached from CLI chat. Text now uses Control Plane SDK sessions.');
+        await ctx.reply('✅ Detached from CLI chat. Text now uses SDK sessions.');
         return;
       }
 
@@ -657,6 +666,34 @@ export class TelegramChannel implements Channel {
         }
         await ctx.answerCbQuery('Creating CLI chat…');
         await this.createAndAttachCliChat(chatId, paths[index]);
+        return;
+      }
+
+      if (key.startsWith('cwd:')) {
+        const index = Number.parseInt(key.slice('cwd:'.length), 10);
+        const paths = this.pendingCliCwdWorkspaces.get(chatId);
+        const attach = this.cliAttaches.get(chatId);
+        if (!attach || !paths || Number.isNaN(index) || !paths[index]) {
+          await ctx.answerCbQuery('Invalid selection');
+          return;
+        }
+        if (this.cliRunner.isRunning(attach.chatId)) {
+          await ctx.answerCbQuery('Chat is busy');
+          await ctx.reply(
+            'Cannot change cwd while this CLI chat has a run in progress. Wait or `/cli cancel`.'
+          );
+          return;
+        }
+        const nextCwd = paths[index];
+        this.setCliAttach(chatId, { ...attach, cwd: nextCwd });
+        this.pendingCliCwdWorkspaces.delete(chatId);
+        await ctx.answerCbQuery('cwd updated');
+        await ctx.reply(
+          `✅ Workspace updated for *${attach.title}*\n` +
+            `cwd: \`${nextCwd}\`\n` +
+            `Applies to the next message (not an in-flight run).`,
+          { parse_mode: 'Markdown' }
+        );
         return;
       }
 
@@ -918,6 +955,44 @@ export class TelegramChannel implements Channel {
     } catch (err) {
       logger.error({ err }, 'Failed to list CLI chats');
       await ctx.reply('Could not list CLI chats.');
+    }
+  }
+
+  private async startCliCwd(ctx: Context<Update>, chatId: string): Promise<void> {
+    const attach = this.cliAttaches.get(chatId);
+    if (!attach) {
+      await ctx.reply('No CLI chat attached. Use /cli to attach one first.');
+      return;
+    }
+    if (this.cliRunner.isRunning(attach.chatId)) {
+      await ctx.reply(
+        'Cannot change cwd while this CLI chat has a run in progress. Wait or `/cli cancel`.'
+      );
+      return;
+    }
+
+    try {
+      const items = await listLocalWorkspaceItems(this.config);
+      if (items.length === 0) {
+        await ctx.reply(
+          `No workspaces under ${this.config.workspaceRoot}. Add a project folder first.`
+        );
+        return;
+      }
+      const paths = items.map((i) => i.path);
+      this.pendingCliCwdWorkspaces.set(chatId, paths);
+      const buttons = items.map((item, i) => {
+        const name = item.path.split(/[/\\]/).pop() || item.label;
+        const mark = item.path === attach.cwd ? ' ✓' : '';
+        return [Markup.button.callback(`${name}${mark}`.slice(0, 60), `cli:cwd:${i}`)];
+      });
+      await ctx.reply(
+        `Current cwd: \`${attach.cwd}\`\nPick a new workspace for *${attach.title}*:`,
+        { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }
+      );
+    } catch (err) {
+      logger.error({ err }, 'Failed to list workspaces for /cli cwd');
+      await ctx.reply('Could not list workspaces for /cli cwd.');
     }
   }
 

@@ -1,5 +1,5 @@
 /**
- * Core domain types for Cursor Control Plane + CLI
+ * Core domain types for Telegram Cursor CLI
  */
 
 export type SessionStatus = 'open' | 'closed';

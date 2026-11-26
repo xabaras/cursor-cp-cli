@@ -101,7 +101,7 @@ function writeConfigFile(values: SetupValues): string {
   }
   const merged = buildConfigObject(existing, values);
   const header = [
-    '# Cursor Control Plane + CLI — edit this file, then restart:',
+    '# Telegram Cursor CLI — edit this file, then restart:',
     '#   cursor-cp daemon restart   (background)',
     '#   cursor-cp                    (foreground)',
     '',

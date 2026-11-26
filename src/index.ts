@@ -1,5 +1,5 @@
 /**
- * Cursor Control Plane + CLI - Entry Point
+ * Telegram Cursor CLI - Entry Point
  * TypeScript + Cursor SDK Edition (fork with CLI bridge)
  */
 
