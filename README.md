@@ -12,6 +12,8 @@ It still ships the original **web dashboard**, **REST API**, and **Telegram SDK 
 
 > **Upstream:** based on Cursor Control Plane by Sanjay Singh ([MIT](LICENSE)). This fork’s roadmap is the Telegram ↔ Cursor CLI integration; for SDK/dashboard evolution, see upstream.
 
+![Telegram Cursor CLI](https://www.xabaras.dev/news_img/cursor-cli-telegram.jpg)
+
 ### Recent changes
 
 See [Changelog](#changelog) below for the last three releases, or [CHANGELOG.md](CHANGELOG.md) for the full history.
