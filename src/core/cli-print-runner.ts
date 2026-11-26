@@ -1,5 +1,6 @@
 /**
  * Run Cursor CLI headless (`agent -p --resume`) and collect assistant text.
+ * Supports multiple concurrent processes keyed by CLI chatId.
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -17,6 +18,7 @@ export interface CliPrintRunOptions {
   mode?: CliPrintMode;
   force?: boolean;
   trust?: boolean;
+  /** 0 or negative = no timeout kill. */
   timeoutMs?: number;
   apiKey?: string;
   onChunk?: (text: string) => void;
@@ -43,14 +45,15 @@ export function preferLongerCliText(resultText: string, assistantText: string): 
 }
 
 export class CliPrintRunner {
-  private active: ChildProcess | null = null;
+  /** Active child processes keyed by CLI chatId. */
+  private children = new Map<string, ChildProcess>();
 
   async run(options: CliPrintRunOptions): Promise<CliPrintRunResult> {
-    if (this.active) {
+    if (this.children.has(options.chatId)) {
       return {
         success: false,
         text: '',
-        error: 'A CLI run is already in progress',
+        error: `A CLI run is already in progress for chat ${options.chatId}`,
         exitCode: null,
       };
     }
@@ -87,15 +90,15 @@ export class CliPrintRunner {
       cwd: options.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    this.active = child;
+    this.children.set(options.chatId, child);
 
     let assistantText = '';
     let resultText = '';
     let stderr = '';
-    const timeoutMs = options.timeoutMs ?? 600_000;
+    const timeoutMs = options.timeoutMs ?? 0;
 
     if (!child.stdout || !child.stderr) {
-      this.active = null;
+      this.children.delete(options.chatId);
       return {
         success: false,
         text: '',
@@ -132,15 +135,18 @@ export class CliPrintRunner {
     );
 
     let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      this.cancel();
-    }, timeoutMs);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        timedOut = true;
+        this.cancel(options.chatId);
+      }, timeoutMs);
+    }
 
     const { code, signal } = await exitPromise;
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
     rl.close();
-    this.active = null;
+    this.children.delete(options.chatId);
 
     const resultLen = resultText.trim().length;
     const assistantLen = assistantText.trim().length;
@@ -188,8 +194,18 @@ export class CliPrintRunner {
     };
   }
 
-  cancel(): void {
-    const child = this.active;
+  /** Cancel one chat's run, or all if chatId omitted. */
+  cancel(chatId?: string): void {
+    if (chatId) {
+      this.killChild(this.children.get(chatId));
+      return;
+    }
+    for (const child of this.children.values()) {
+      this.killChild(child);
+    }
+  }
+
+  private killChild(child: ChildProcess | undefined): void {
     if (!child || child.killed) return;
     try {
       child.kill('SIGTERM');
@@ -201,8 +217,26 @@ export class CliPrintRunner {
     }
   }
 
-  get isRunning(): boolean {
-    return this.active != null && !this.active.killed;
+  isRunning(chatId?: string): boolean {
+    if (chatId) {
+      const child = this.children.get(chatId);
+      return child != null && !child.killed;
+    }
+    for (const child of this.children.values()) {
+      if (!child.killed) return true;
+    }
+    return false;
+  }
+
+  listRunningChatIds(): string[] {
+    return [...this.children.keys()].filter((id) => {
+      const c = this.children.get(id);
+      return c != null && !c.killed;
+    });
+  }
+
+  get runningCount(): number {
+    return this.listRunningChatIds().length;
   }
 }
 

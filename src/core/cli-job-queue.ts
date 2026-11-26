@@ -43,6 +43,15 @@ export class CliJobQueue<TPayload> {
     return this.running.has(key);
   }
 
+  /** Queue keys that currently have a running pump and/or pending jobs. */
+  listActiveKeys(): string[] {
+    const keys = new Set<string>([...this.running]);
+    for (const [key, q] of this.queues) {
+      if (q.length > 0) keys.add(key);
+    }
+    return [...keys];
+  }
+
   private async pump(key: string): Promise<void> {
     if (this.running.has(key)) return;
     const processor = this.processors.get(key);

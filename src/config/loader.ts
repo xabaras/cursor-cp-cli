@@ -58,7 +58,8 @@ export const RawConfigSchema = z.object({
       force: z.boolean().default(true),
       trust: z.boolean().default(true),
       filter_by_workspace_root: z.boolean().default(true),
-      timeout_ms: z.number().default(600_000),
+      /** 0 = no timeout kill (long agent runs). */
+      timeout_ms: z.number().default(0),
       stream_edit_interval_ms: z.number().default(1200),
       notify_on_complete: z.boolean().default(true),
     })
@@ -69,7 +70,7 @@ export const RawConfigSchema = z.object({
       force: true,
       trust: true,
       filter_by_workspace_root: true,
-      timeout_ms: 600_000,
+      timeout_ms: 0,
       stream_edit_interval_ms: 1200,
       notify_on_complete: true,
     }),

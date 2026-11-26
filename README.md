@@ -38,7 +38,7 @@ machine (created with the `agent` TUI), without going through the SDK session pa
 
 - **Web dashboard** — real-time chat UI with WebSocket streaming
 - **Telegram bot** — drive agents from chat, with inline buttons for sessions, models, and repos
-- **Cursor CLI bridge** — attach Telegram to local CLI chats (`/cli`), with modes, queue, and live streaming
+- **Cursor CLI bridge** — attach Telegram to local CLI chats (`/cli`), with parallel jobs, stream-on-attach, and live streaming
 - **Persistent sessions** — SQLite-backed session, message, and participant storage
 - **Multi-repository support** — work across local workspaces and clone GitHub repos via the `gh` CLI
 - **Model selection** — choose any model the Cursor SDK exposes, per session or as a default
@@ -58,7 +58,7 @@ cli_bridge:
   force: true               # --force / no interactive tool approvals
   trust: true
   filter_by_workspace_root: true
-  timeout_ms: 600000
+  timeout_ms: 0             # 0 = no kill; set e.g. 600000 for a hard timeout
   stream_edit_interval_ms: 1200
   notify_on_complete: true  # default; false = edit-only (no Telegram OS notification)
 ```
@@ -70,12 +70,16 @@ Then restart the daemon (`cursor-cp daemon restart`).
 1. `/cli` lists chats under `~/.cursor/chats` (optionally filtered by `workspace_root`).
 2. Attaching a chat routes subsequent plain-text Telegram messages to  
    `agent -p --resume <chatId> --workspace <cwd> --trust --force`.
-3. While the agent runs, Telegram shows a **streaming preview** updated with `editMessageText`.
-4. When the run finishes (default `notify_on_complete: true`), that preview is deleted and the
-   full reply is sent as a **new** message so Telegram can fire an OS notification.
-   Set `notify_on_complete: false` to keep the edit-only behaviour (no notification).
-5. Without a CLI attach, plain text still uses **SDK sessions** (`/sessions`, `/workspaces`, …).
-6. Avoid using the **same** CLI chat in the terminal TUI and Telegram at the same time.
+3. Different CLI chats can run **in parallel**. The same CLI chat is still queued FIFO.
+4. Live streaming updates only while that CLI chat is **attached**. Switch attach freely;
+   background jobs keep running.
+5. When a job finishes off-attach, Telegram gets the final reply (with chat id) plus a
+   **Passa a …** button to re-attach that chat.
+6. When the run finishes while attached (default `notify_on_complete: true`), the stream
+   preview is deleted and the full reply is a **new** message (OS notification).
+   Set `notify_on_complete: false` to keep edit-only behaviour.
+7. Without a CLI attach, plain text still uses **SDK sessions** (`/sessions`, `/workspaces`, …).
+8. Avoid using the **same** CLI chat in the terminal TUI and Telegram at the same time.
 
 ### Telegram CLI commands
 
@@ -86,15 +90,14 @@ Then restart the daemon (`cursor-cp daemon restart`).
 | `/cli new` | Create and attach a new CLI chat |
 | `/cli mode [agent\|plan\|ask]` | Show or set CLI execution mode (persisted with the attach) |
 | `/cli plan` / `/cli ask` / `/cli agent` | Shortcuts for `/cli mode` |
-| `/cli cancel` | Stop the current CLI run |
-| `/cli cancel all` | Stop the run and clear the queue |
+| `/cli cancel` | Stop the attached CLI chat run (and clear its queue) |
+| `/cli cancel all` | Stop all runs for this Telegram chat and clear queues |
 | `/cli off` | Detach CLI mode (back to SDK sessions) |
-| `/cli status` | Show attach status, mode, and queue |
+| `/cli status` | Show attach status, mode, and active/queued jobs |
 
 **Modes:** `agent` (default, can edit; uses `--force`), `plan` and `ask` (read-only via `agent --mode`). Cursor IDE **debug** mode is not available in headless CLI.
 
-Jobs for the same Telegram chat are queued FIFO. Replies stream via Telegram message edits,
-then (by default) arrive as a final `sendMessage` so you get a notification when Cursor is done.
+Long runs do not time out by default (`timeout_ms: 0`); use `/cli cancel` to stop them.
 
 ## Quick Start
 
@@ -438,7 +441,7 @@ All endpoints are served under the `/api` prefix.
 
 ```http
 GET /api/health
-# → { "status": "ok", "version": "0.5.4" }
+# → { "status": "ok", "version": "0.6.0" }
 
 GET /api/dashboard-config
 # → { "web_channel_key": "web:default", "workspace_root": "...", "default_model": "...", "max_sessions": 5 }

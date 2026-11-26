@@ -55,6 +55,16 @@ interface CliJobPayload {
   text: string;
 }
 
+interface CliActiveJobInfo {
+  telegramChatId: string;
+  attach: CliAttach;
+  startedAt: number;
+}
+
+function cliQueueKey(telegramChatId: string, cliChatId: string): string {
+  return `${telegramChatId}:${cliChatId}`;
+}
+
 export class TelegramChannel implements Channel {
   readonly name = 'telegram';
 
@@ -79,6 +89,13 @@ export class TelegramChannel implements Channel {
   private cliAttaches: Map<string, CliAttach> = new Map();
   private cliRunner = new CliPrintRunner();
   private cliQueue = new CliJobQueue<CliJobPayload>();
+  /** Running/queued job metadata for /cli status (keyed by cliChatId). */
+  private cliActiveJobs = new Map<string, CliActiveJobInfo>();
+  /** Attach targets + reply text for "Passa a …" buttons (keyed by cliChatId). */
+  private pendingCliSwitchAttaches = new Map<
+    string,
+    { attach: CliAttach; finalText: string }
+  >();
 
   // Track active sessions per chat
   private activeSessions: Map<string, string> = new Map();
@@ -255,13 +272,14 @@ export class TelegramChannel implements Channel {
                 '/cli new - Create and attach a new CLI chat',
                 '/cli mode [agent|plan|ask] - Show or set CLI execution mode',
                 '/cli plan|/cli ask|/cli agent - Shortcuts for /cli mode',
-                '/cli cancel - Stop the current CLI run',
-                '/cli cancel all - Stop run and clear the queue',
+                '/cli cancel - Stop the attached CLI chat run',
+                '/cli cancel all - Stop all runs and clear queues',
                 '/cli off - Detach CLI mode (back to SDK sessions)',
-                '/cli status - Show CLI attach status',
+                '/cli status - Show attach + active/queued CLI jobs',
                 '',
                 'With a CLI chat attached, plain text continues that chat',
-                '(queued if busy; runs with --force, no tool approvals).',
+                '(queued per chat; different chats can run in parallel).',
+                'Long runs do not time out by default; use /cli cancel to stop.',
                 'plan/ask are read-only CLI modes; agent can edit (default).',
                 'Without CLI attach, plain text uses SDK sessions.',
                 'Avoid using the same CLI chat in the terminal and Telegram at once.',
@@ -488,19 +506,7 @@ export class TelegramChannel implements Channel {
       }
 
       if (argLower === 'cancel' || argLower.startsWith('cancel ')) {
-        const all = argLower === 'cancel all' || argLower.endsWith(' all');
-        const wasRunning = this.cliRunner.isRunning;
-        this.cliRunner.cancel();
-        const cleared = all ? this.cliQueue.clear(chatId) : 0;
-        if (!wasRunning && cleared === 0) {
-          await ctx.reply('Nothing to cancel (no active CLI run / empty queue).');
-          return;
-        }
-        await ctx.reply(
-          all
-            ? `✅ Cancelled run and cleared ${cleared} queued job(s).`
-            : '✅ Cancel signal sent to current CLI run (queue kept).'
-        );
+        await this.handleCliCancel(ctx, chatId, argLower === 'cancel all' || argLower.endsWith(' all'));
         return;
       }
 
@@ -620,6 +626,28 @@ export class TelegramChannel implements Channel {
         return;
       }
 
+      if (key.startsWith('sw:')) {
+        const cliChatId = key.slice('sw:'.length);
+        const pending = this.pendingCliSwitchAttaches.get(cliChatId);
+        if (!pending || pending.attach.chatId !== cliChatId) {
+          await ctx.answerCbQuery('Switch target expired');
+          return;
+        }
+        const { attach, finalText } = pending;
+        this.setCliAttach(chatId, attach);
+        await ctx.answerCbQuery(`Attached: ${attach.title}`);
+        await ctx.reply(
+          `✅ Switched to CLI chat *${attach.title}*\n` +
+            `Id: \`${attach.chatId}\`\n` +
+            `CLI mode: ${attach.mode}`,
+          { parse_mode: 'Markdown' }
+        );
+        if (finalText.trim()) {
+          await this.sendMessage(chatId, finalText);
+        }
+        return;
+      }
+
       if (key.startsWith('newws:')) {
         const index = Number.parseInt(key.slice('newws:'.length), 10);
         const paths = this.pendingCliNewWorkspaces.get(chatId);
@@ -692,22 +720,107 @@ export class TelegramChannel implements Channel {
 
   private async replyCliStatus(ctx: Context<Update>, chatId: string): Promise<void> {
     const attach = this.cliAttaches.get(chatId);
+    const lines: string[] = [];
     if (!attach) {
-      await ctx.reply('Mode: SDK sessions (no CLI attach).\nUse /cli to attach a Cursor CLI chat.');
+      lines.push('Mode: SDK sessions (no CLI attach).', 'Use /cli to attach a Cursor CLI chat.');
+    } else {
+      const qKey = cliQueueKey(chatId, attach.chatId);
+      const pending = this.cliQueue.pendingCount(qKey);
+      const running = this.cliRunner.isRunning(attach.chatId) || this.cliQueue.isRunning(qKey);
+      lines.push(
+        'Mode: *CLI attached*',
+        `Title: ${attach.title}`,
+        `Id: \`${attach.chatId}\``,
+        `cwd: \`${attach.cwd}\``,
+        `CLI mode: ${attach.mode}`,
+        `This chat run: ${running ? 'active' : 'idle'}` + (pending ? ` · queue: ${pending}` : '')
+      );
+    }
+
+    const prefix = `${chatId}:`;
+    const jobLines: string[] = [];
+    for (const qKey of this.cliQueue.listActiveKeys()) {
+      if (!qKey.startsWith(prefix)) continue;
+      const cliId = qKey.slice(prefix.length);
+      const info = this.cliActiveJobs.get(cliId);
+      const title = info?.attach.title ?? cliId.slice(0, 8);
+      const state = this.cliRunner.isRunning(cliId)
+        ? 'running'
+        : this.cliQueue.isRunning(qKey)
+          ? 'running'
+          : 'queued';
+      const pending = this.cliQueue.pendingCount(qKey);
+      jobLines.push(
+        `• ${state}: ${title} (\`${cliId.slice(0, 8)}…\`)` +
+          (pending ? ` · +${pending} queued` : '')
+      );
+    }
+    if (jobLines.length > 0) {
+      lines.push('', 'Active / tracked CLI jobs:', ...jobLines);
+    } else if (attach) {
+      lines.push('', 'No background CLI jobs.');
+    }
+
+    lines.push(
+      '',
+      'Tool approvals: none (--force). /cli cancel · /cli cancel all · /cli off'
+    );
+    await ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
+  }
+
+  private async handleCliCancel(
+    ctx: Context<Update>,
+    telegramChatId: string,
+    all: boolean
+  ): Promise<void> {
+    if (all) {
+      let cancelled = 0;
+      let cleared = 0;
+      const prefix = `${telegramChatId}:`;
+      const keys = new Set([
+        ...this.cliQueue.listActiveKeys().filter((k) => k.startsWith(prefix)),
+        ...[...this.cliActiveJobs.entries()]
+          .filter(([, info]) => info.telegramChatId === telegramChatId)
+          .map(([cliId]) => cliQueueKey(telegramChatId, cliId)),
+      ]);
+      for (const qKey of keys) {
+        const cliId = qKey.slice(prefix.length);
+        if (this.cliRunner.isRunning(cliId)) {
+          this.cliRunner.cancel(cliId);
+          cancelled += 1;
+        }
+        cleared += this.cliQueue.clear(qKey);
+        this.cliActiveJobs.delete(cliId);
+      }
+      if (cancelled === 0 && cleared === 0) {
+        await ctx.reply('Nothing to cancel (no active CLI runs / empty queues).');
+        return;
+      }
+      await ctx.reply(
+        `✅ Cancelled ${cancelled} run(s) and cleared ${cleared} queued job(s).`
+      );
       return;
     }
-    const pending = this.cliQueue.pendingCount(chatId);
-    const running = this.cliQueue.isRunning(chatId) || this.cliRunner.isRunning;
+
+    const attach = this.cliAttaches.get(telegramChatId);
+    if (!attach) {
+      await ctx.reply('No CLI chat attached. Attach one or use `/cli cancel all`.');
+      return;
+    }
+    const qKey = cliQueueKey(telegramChatId, attach.chatId);
+    const wasRunning = this.cliRunner.isRunning(attach.chatId);
+    this.cliRunner.cancel(attach.chatId);
+    const cleared = this.cliQueue.clear(qKey);
+    this.cliActiveJobs.delete(attach.chatId);
+    if (!wasRunning && cleared === 0) {
+      await ctx.reply('Nothing to cancel for the attached CLI chat.');
+      return;
+    }
     await ctx.reply(
-      `Mode: *CLI attached*\n` +
-        `Title: ${attach.title}\n` +
-        `Id: \`${attach.chatId}\`\n` +
-        `cwd: \`${attach.cwd}\`\n` +
-        `CLI mode: ${attach.mode}\n` +
-        `Run: ${running ? 'active' : 'idle'}` +
-        (pending ? ` · queue: ${pending}` : '') +
-        `\n\nTool approvals: none (--force). /cli mode plan|ask|agent · /cli off to detach.`,
-      { parse_mode: 'Markdown' }
+      wasRunning
+        ? `✅ Cancel signal sent to ${attach.title}` +
+          (cleared ? ` (cleared ${cleared} queued).` : '.')
+        : `✅ Cleared ${cleared} queued job(s) for ${attach.title}.`
     );
   }
 
@@ -880,14 +993,15 @@ export class TelegramChannel implements Channel {
   }
 
   private enqueueCliJob(telegramChatId: string, attach: CliAttach, text: string): void {
+    const qKey = cliQueueKey(telegramChatId, attach.chatId);
     const alreadyBusy =
-      this.cliQueue.isRunning(telegramChatId) || this.cliQueue.pendingCount(telegramChatId) > 0;
+      this.cliQueue.isRunning(qKey) || this.cliQueue.pendingCount(qKey) > 0;
 
-    this.cliQueue.setProcessor(telegramChatId, async (job) => {
+    this.cliQueue.setProcessor(qKey, async (job) => {
       await this.runCliJob(job.payload);
     });
 
-    const { position } = this.cliQueue.enqueue(telegramChatId, {
+    const { position } = this.cliQueue.enqueue(qKey, {
       telegramChatId,
       attach,
       text,
@@ -896,9 +1010,13 @@ export class TelegramChannel implements Channel {
     if (alreadyBusy || position > 1) {
       void this.sendMessage(
         telegramChatId,
-        `⏳ Queued for CLI ${attach.title} (#${position})`
+        `⏳ Queued for CLI ${attach.title} (${attach.chatId.slice(0, 8)}…) #${position}`
       );
     }
+  }
+
+  private isCliChatAttached(telegramChatId: string, cliChatId: string): boolean {
+    return this.cliAttaches.get(telegramChatId)?.chatId === cliChatId;
   }
 
   private async runCliJob(payload: CliJobPayload): Promise<void> {
@@ -915,12 +1033,22 @@ export class TelegramChannel implements Channel {
     let statusMsgId: number | undefined;
     let accumulated = '';
     let lastEdit = 0;
+    let streaming = this.isCliChatAttached(telegramChatId, attach.chatId);
+    let backgroundNotified = false;
     const interval = this.config.cliBridge.streamEditIntervalMs || 1200;
+
+    this.cliActiveJobs.set(attach.chatId, {
+      telegramChatId,
+      attach,
+      startedAt: Date.now(),
+    });
 
     try {
       const status = await this.bot.telegram.sendMessage(
         telegramChatId,
-        `⏳ CLI: ${attach.title}…`
+        streaming
+          ? `⏳ CLI: ${attach.title}…`
+          : `⏳ CLI background: ${attach.title} (${attach.chatId.slice(0, 8)}…) — streaming paused (not attached)`
       );
       statusMsgId = status.message_id;
 
@@ -936,6 +1064,25 @@ export class TelegramChannel implements Channel {
         apiKey: this.config.cursorApiKey || undefined,
         onChunk: (delta) => {
           accumulated += delta;
+          const attachedNow = this.isCliChatAttached(telegramChatId, attach.chatId);
+          if (!attachedNow) {
+            if (streaming && statusMsgId && !backgroundNotified) {
+              backgroundNotified = true;
+              streaming = false;
+              void this.bot.telegram
+                .editMessageText(
+                  telegramChatId,
+                  statusMsgId,
+                  undefined,
+                  `⏳ CLI background: ${attach.title} — still running (not attached)`
+                )
+                .catch(() => {
+                  /* ignore */
+                });
+            }
+            return;
+          }
+          streaming = true;
           const now = Date.now();
           if (now - lastEdit < interval || !statusMsgId) return;
           lastEdit = now;
@@ -948,16 +1095,27 @@ export class TelegramChannel implements Channel {
         },
       });
 
-      const finalText = result.success
+      const body = result.success
         ? result.text
         : `❌ ${result.error || 'CLI run failed'}${result.text ? `\n\n${result.text}` : ''}`;
-      const finalPreview = truncateTelegram(finalText);
+      const header =
+        `CLI done · ${attach.title}\n` +
+        `Id: \`${attach.chatId}\`\n\n`;
+      const finalText = header + body;
+      const stillAttached = this.isCliChatAttached(telegramChatId, attach.chatId);
       const notifyOnComplete = this.config.cliBridge.notifyOnComplete !== false;
+      const completeMeta = {
+        telegramChatId,
+        cliChatId: attach.chatId,
+        textLength: finalText.length,
+        resultLen: result.resultLen,
+        assistantLen: result.assistantLen,
+        stillAttached,
+      };
 
-      // Default: send a new message (notifies), then delete the stream preview.
-      if (notifyOnComplete) {
-        await this.sendMessage(telegramChatId, finalText);
-        if (statusMsgId) {
+      if (notifyOnComplete || !stillAttached || !statusMsgId) {
+        await this.deliverCliCompletion(telegramChatId, attach, finalText, stillAttached);
+        if (statusMsgId && (streaming || stillAttached)) {
           try {
             await this.bot.telegram.deleteMessage(telegramChatId, statusMsgId);
           } catch (err) {
@@ -966,75 +1124,86 @@ export class TelegramChannel implements Channel {
               'Could not delete CLI stream preview message'
             );
           }
+        } else if (statusMsgId && !stillAttached) {
+          try {
+            await this.bot.telegram.deleteMessage(telegramChatId, statusMsgId);
+          } catch {
+            /* ignore */
+          }
         }
-        logger.info(
-          {
-            telegramChatId,
-            cliChatId: attach.chatId,
-            via: 'notify-send',
-            textLength: finalText.length,
-            resultLen: result.resultLen,
-            assistantLen: result.assistantLen,
-          },
-          'CLI print run completed'
-        );
+        logger.info({ ...completeMeta, via: 'notify-send' }, 'CLI print run completed');
         return;
       }
 
-      // notify_on_complete: false — finalize in-place via edit (no OS notification)
-      if (statusMsgId) {
-        const alreadyShown =
-          truncateTelegram(accumulated || '') === finalPreview ||
-          accumulated.trim() === finalText.trim();
-        const completeMeta = {
-          telegramChatId,
-          cliChatId: attach.chatId,
-          textLength: finalText.length,
-          resultLen: result.resultLen,
-          assistantLen: result.assistantLen,
-        };
-        if (alreadyShown) {
-          logger.info({ ...completeMeta, via: 'stream-preview' }, 'CLI print run completed');
-          return;
-        }
-
-        try {
-          await this.bot.telegram.editMessageText(
-            telegramChatId,
-            statusMsgId,
-            undefined,
-            finalPreview
-          );
-          logger.info({ ...completeMeta, via: 'edit' }, 'CLI print run completed');
-          return;
-        } catch (err) {
-          if (isTelegramMessageNotModified(err)) {
-            logger.info({ ...completeMeta, via: 'edit-unchanged' }, 'CLI print run completed');
-            return;
-          }
-          logger.warn(
-            { err, telegramChatId, cliChatId: attach.chatId },
-            'Final CLI status edit failed; sending as new message'
-          );
-        }
+      // notify_on_complete: false and still attached — finalize in-place via edit
+      const finalPreview = truncateTelegram(finalText);
+      const alreadyShown =
+        truncateTelegram(accumulated || '') === finalPreview ||
+        accumulated.trim() === body.trim();
+      if (alreadyShown) {
+        logger.info({ ...completeMeta, via: 'stream-preview' }, 'CLI print run completed');
+        return;
       }
-      await this.sendMessage(telegramChatId, finalText);
-      logger.info(
-        {
+
+      try {
+        await this.bot.telegram.editMessageText(
           telegramChatId,
-          cliChatId: attach.chatId,
-          via: 'send',
-          textLength: finalText.length,
-          resultLen: result.resultLen,
-          assistantLen: result.assistantLen,
-        },
-        'CLI print run completed'
-      );
+          statusMsgId,
+          undefined,
+          finalPreview
+        );
+        logger.info({ ...completeMeta, via: 'edit' }, 'CLI print run completed');
+        return;
+      } catch (err) {
+        if (isTelegramMessageNotModified(err)) {
+          logger.info({ ...completeMeta, via: 'edit-unchanged' }, 'CLI print run completed');
+          return;
+        }
+        logger.warn(
+          { err, telegramChatId, cliChatId: attach.chatId },
+          'Final CLI status edit failed; sending as new message'
+        );
+      }
+      await this.deliverCliCompletion(telegramChatId, attach, finalText, stillAttached);
+      logger.info({ ...completeMeta, via: 'send' }, 'CLI print run completed');
     } catch (err) {
       logger.error({ err, telegramChatId, cliChatId: attach.chatId }, 'CLI message failed');
       await this.sendMessage(telegramChatId, `❌ ${formatTelegramError(err)}`);
     } finally {
+      this.cliActiveJobs.delete(attach.chatId);
       releaseCliChatLock(attach.chatId);
+    }
+  }
+
+  /** Final CLI reply; adds Passa a… button when that chat is not currently attached. */
+  private async deliverCliCompletion(
+    telegramChatId: string,
+    attach: CliAttach,
+    finalText: string,
+    stillAttached: boolean
+  ): Promise<void> {
+    if (stillAttached) {
+      await this.sendMessage(telegramChatId, finalText);
+      return;
+    }
+
+    this.pendingCliSwitchAttaches.set(attach.chatId, { attach, finalText });
+    const label = `Passa a ${attach.title}`.slice(0, 64);
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback(label, `cli:sw:${attach.chatId}`)],
+    ]);
+
+    // First chunk (or whole message) with keyboard; overflow as plain follow-ups
+    if (finalText.length <= 4096) {
+      await this.sendFormattedWithKeyboard(telegramChatId, finalText, keyboard);
+      return;
+    }
+
+    const chunks = splitPlainText(finalText, 4096);
+    const [first, ...rest] = chunks;
+    await this.sendFormattedWithKeyboard(telegramChatId, first, keyboard);
+    for (const chunk of rest) {
+      await this.sendMarkdownMessage(telegramChatId, chunk);
     }
   }
 

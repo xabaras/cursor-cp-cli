@@ -41,7 +41,8 @@ cli_bridge:
   force: true
   trust: true
   filter_by_workspace_root: true
-  timeout_ms: 600000
+  # 0 = no kill (recommended for long agent runs). Set e.g. 600000 to hard-timeout.
+  timeout_ms: 0
   stream_edit_interval_ms: 1200
   # After live stream edits, delete preview and sendMessage so Telegram notifies
   notify_on_complete: true
