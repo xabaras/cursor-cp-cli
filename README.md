@@ -14,10 +14,6 @@ It still ships the original **web dashboard**, **REST API**, and **Telegram SDK 
 
 ![Telegram Cursor CLI](https://www.xabaras.dev/news_img/cursor-cli-telegram.jpg)
 
-### Recent changes
-
-See [Changelog](#changelog) below for the last three releases, or [CHANGELOG.md](CHANGELOG.md) for the full history.
-
 ## Table of Contents
 
 - [Overview](#overview)
@@ -529,8 +525,6 @@ Only users listed in `channels.telegram.allowed_user_ids` are allowed to interac
 
 ## Changelog
 
-Latest three releases (full history: [CHANGELOG.md](CHANGELOG.md)):
-
 ### 0.6.2 — 2026-11-26
 
 - Off-attach completion button label: **Switch to …** (was Italian “Passa a …”), consistent with the English bot UI.
@@ -549,6 +543,8 @@ Latest three releases (full history: [CHANGELOG.md](CHANGELOG.md)):
 - Off-attach completion message with chat id and **Switch to …** button (re-attaches and re-shows the reply).
 - `/cli status` lists active/queued jobs; `/cli cancel` / `/cli cancel all`.
 - Default `cli_bridge.timeout_ms` is `0` (no hard kill on long agent runs).
+
+For the full changes history see [CHANGELOG.md](CHANGELOG.md).
 
 ## Troubleshooting
 
