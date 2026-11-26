@@ -5,6 +5,11 @@ All notable changes to this fork are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] — 2026-11-26
+
+### Changed
+- Off-attach completion button label: **Switch to …** (was Italian “Passa a …”), consistent with the English bot UI.
+
 ## [0.6.1] — 2026-11-26
 
 ### Added
@@ -13,14 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CHANGELOG.md` and version / recent-changes section in the README.
 
 ### Changed
-- README documents parallel CLI jobs, attach switching, and the **Passa a …** completion button.
+- README documents parallel CLI jobs, attach switching, and the **Switch to …** completion button.
 
 ## [0.6.0] — 2026-11-26
 
 ### Added
 - Parallel CLI jobs across different chats (FIFO queue per `cliChatId`).
 - Stream updates only while that CLI chat is attached; background jobs keep running.
-- Off-attach completion message with chat id and **Passa a …** button (re-attaches and re-shows the reply).
+- Off-attach completion message with chat id and **Switch to …** button (re-attaches and re-shows the reply).
 - `/cli status` lists active/queued jobs; `/cli cancel` targets the attached chat; `/cli cancel all` stops all jobs for this Telegram chat.
 
 ### Changed

@@ -93,7 +93,7 @@ export class TelegramChannel implements Channel {
   private cliQueue = new CliJobQueue<CliJobPayload>();
   /** Running/queued job metadata for /cli status (keyed by cliChatId). */
   private cliActiveJobs = new Map<string, CliActiveJobInfo>();
-  /** Attach targets + reply text for "Passa a …" buttons (keyed by cliChatId). */
+  /** Attach targets + reply text for "Switch to …" buttons (keyed by cliChatId). */
   private pendingCliSwitchAttaches = new Map<
     string,
     { attach: CliAttach; finalText: string }
@@ -1250,7 +1250,7 @@ export class TelegramChannel implements Channel {
     }
   }
 
-  /** Final CLI reply; adds Passa a… button when that chat is not currently attached. */
+  /** Final CLI reply; adds Switch to… button when that chat is not currently attached. */
   private async deliverCliCompletion(
     telegramChatId: string,
     attach: CliAttach,
@@ -1263,7 +1263,7 @@ export class TelegramChannel implements Channel {
     }
 
     this.pendingCliSwitchAttaches.set(attach.chatId, { attach, finalText });
-    const label = `Passa a ${attach.title}`.slice(0, 64);
+    const label = `Switch to ${attach.title}`.slice(0, 64);
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.callback(label, `cli:sw:${attach.chatId}`)],
     ]);

@@ -4,7 +4,7 @@ Fork of [sanjaysingh/cursor-cp](https://github.com/sanjaysingh/cursor-cp) focuse
 
 It still ships the original **web dashboard**, **REST API**, and **Telegram SDK sessions** inherited from Sanjay Singh’s Cursor Control Plane, but active development targets the CLI bridge. Those inherited surfaces are kept working as-is and are **not** expected to receive further feature updates in this fork.
 
-**Current version: 0.6.1** · CLI command remains `cursor-cp` · GitHub repo: [xabaras/cursor-cp-cli](https://github.com/xabaras/cursor-cp-cli)
+**Current version: 0.6.2** · CLI command remains `cursor-cp` · GitHub repo: [xabaras/cursor-cp-cli](https://github.com/xabaras/cursor-cp-cli)
 
 [![CI](https://github.com/xabaras/cursor-cp-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xabaras/cursor-cp-cli/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -12,11 +12,9 @@ It still ships the original **web dashboard**, **REST API**, and **Telegram SDK 
 
 > **Upstream:** based on Cursor Control Plane by Sanjay Singh ([MIT](LICENSE)). This fork’s roadmap is the Telegram ↔ Cursor CLI integration; for SDK/dashboard evolution, see upstream.
 
-### Recent changes (0.6.1)
+### Recent changes (0.6.2)
 
-- Soft rebrand to **Telegram Cursor CLI** (display / npm name; paths and `cursor-cp` unchanged)
-- `/cli cwd` — change workspace for the attached CLI chat (next messages)
-- README documents parallel jobs and switching chats mid-run
+- Off-attach completion button label is **Switch to …** (English, matching the rest of the bot UI)
 
 Full history: [CHANGELOG.md](CHANGELOG.md).
 
@@ -50,7 +48,7 @@ and future work — is the CLI bridge, not extending those inherited features.
 
 ### Features
 
-- **Cursor CLI bridge** (primary) — attach Telegram to local CLI chats (`/cli`); parallel jobs; switch attach mid-run; stream only while attached; **Passa a …** on off-attach completion
+- **Cursor CLI bridge** (primary) — attach Telegram to local CLI chats (`/cli`); parallel jobs; switch attach mid-run; stream only while attached; **Switch to …** on off-attach completion
 - **Web dashboard** (inherited) — real-time chat UI with WebSocket streaming
 - **Telegram SDK sessions** (inherited) — drive SDK agents from chat, with inline buttons for sessions, models, and repos
 - **Persistent sessions** (inherited) — SQLite-backed session, message, and participant storage
@@ -86,9 +84,9 @@ Then restart the daemon (`cursor-cp daemon restart`).
    `agent -p --resume <chatId> --workspace <cwd> --trust --force`.
 3. Different CLI chats can run **in parallel**. The same CLI chat is still queued FIFO.
 4. Live streaming updates only while that CLI chat is **attached**. Switch attach freely
-   (via `/cli` or **Passa a …**); other jobs keep running in the background.
+   (via `/cli` or **Switch to …**); other jobs keep running in the background.
 5. When a job finishes off-attach, Telegram gets the final reply (with chat id) plus a
-   **Passa a …** button that re-attaches that chat and re-shows the reply.
+   **Switch to …** button that re-attaches that chat and re-shows the reply.
 6. When the run finishes while attached (default `notify_on_complete: true`), the stream
    preview is deleted and the full reply is a **new** message (OS notification).
    Set `notify_on_complete: false` to keep edit-only behaviour.
@@ -459,8 +457,7 @@ All endpoints are served under the `/api` prefix.
 
 ```http
 GET /api/health
-# → { "status": "ok", "version": "0.6.1" }
-
+# → { "status": "ok", "version": "0.6.2" }
 GET /api/dashboard-config
 # → { "web_channel_key": "web:default", "workspace_root": "...", "default_model": "...", "max_sessions": 5 }
 ```
@@ -532,7 +529,7 @@ Only users listed in `channels.telegram.allowed_user_ids` are allowed to interac
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for the full release history. Latest: **0.6.1**.
+See [CHANGELOG.md](CHANGELOG.md) for the full release history. Latest: **0.6.2**.
 
 ## Troubleshooting
 

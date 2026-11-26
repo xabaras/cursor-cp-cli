@@ -1,6 +1,6 @@
 {
   "name": "telegram-cursor-cli",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Telegram Cursor CLI — bridge Telegram to local Cursor CLI chats (agent -p --resume), plus the upstream web/Telegram SDK control plane",
   "type": "module",
   "license": "MIT",
