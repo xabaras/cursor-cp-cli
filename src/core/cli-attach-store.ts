@@ -21,6 +21,27 @@ export interface PersistedCliAttach {
   title: string;
   /** Default agent when omitted (legacy attaches). */
   mode?: CliAgentMode;
+  /**
+   * Cursor CLI model id for `agent -p --model` (e.g. `auto`, `composer-2.5`).
+   * Omitted / empty = legacy unset (treated as Auto for display; no --model flag).
+   * SDK Auto id `default` is normalized to CLI `auto`.
+   */
+  model?: string;
+}
+
+/** Normalize persisted model id; keeps `auto`; maps SDK `default` → `auto`. */
+export function normalizeCliModel(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (/^default$/i.test(trimmed)) return 'auto';
+  return trimmed;
+}
+
+/** Display label for status / replies. */
+export function formatCliModelLabel(model: string | undefined): string {
+  if (!model || /^auto$/i.test(model)) return 'Auto';
+  return model;
 }
 
 function storePath(): string {
@@ -37,11 +58,13 @@ export function loadCliAttaches(): Map<string, PersistedCliAttach> {
     const raw = JSON.parse(readFileSync(path, 'utf-8')) as Record<string, PersistedCliAttach>;
     for (const [telegramChatId, attach] of Object.entries(raw)) {
       if (!attach?.chatId || !attach?.cwd) continue;
+      const model = normalizeCliModel(attach.model);
       map.set(telegramChatId, {
         chatId: attach.chatId,
         cwd: attach.cwd,
         title: attach.title || '(untitled)',
         mode: normalizeCliAgentMode(attach.mode),
+        ...(model ? { model } : {}),
       });
     }
   } catch (err) {

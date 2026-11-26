@@ -16,6 +16,8 @@ export interface CliPrintRunOptions {
   prompt: string;
   /** agent = default (no --mode); plan/ask pass --mode to the CLI. */
   mode?: CliPrintMode;
+  /** If set (and not auto), pass `--model <id>`. */
+  model?: string;
   force?: boolean;
   trust?: boolean;
   /** 0 or negative = no timeout kill. */
@@ -73,6 +75,14 @@ export class CliPrintRunner {
     if (mode === 'plan' || mode === 'ask') {
       args.push('--mode', mode);
     }
+    // Pass --model whenever set (including `auto`). Legacy unset → omit flag.
+    const model =
+      typeof options.model === 'string' && options.model.trim()
+        ? options.model.trim()
+        : undefined;
+    if (model) {
+      args.push('--model', model);
+    }
     args.push(options.prompt);
 
     const env = { ...process.env };
@@ -81,7 +91,7 @@ export class CliPrintRunner {
     }
 
     logger.info(
-      { chatId: options.chatId, cwd: options.cwd, agentBin: options.agentBin, mode },
+      { chatId: options.chatId, cwd: options.cwd, agentBin: options.agentBin, mode, model },
       'Starting CLI print run'
     );
 

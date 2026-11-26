@@ -21,10 +21,13 @@ import {
   saveCliAttaches,
   pruneInvalidCliAttaches,
   normalizeCliAgentMode,
+  normalizeCliModel,
+  formatCliModelLabel,
   type CliAgentMode,
 } from '../core/cli-attach-store.js';
 import { CliJobQueue } from '../core/cli-job-queue.js';
 import { createCliChat } from '../core/cli-create-chat.js';
+import { listCliModels, mapSdkModelIdForCli } from '../core/cli-list-models.js';
 import { splitPlainText, markdownToTelegram, markdownToTelegramHtml } from '../format/telegram-format.js';
 import { createHash } from 'crypto';
 import { logger } from '../util/logger.js';
@@ -47,6 +50,8 @@ interface CliAttach {
   cwd: string;
   title: string;
   mode: CliAgentMode;
+  /** Omitted = Auto (no --model). */
+  model?: string;
 }
 
 interface CliJobPayload {
@@ -87,6 +92,8 @@ export class TelegramChannel implements Channel {
   private pendingCliNewWorkspaces: Map<string, string[]> = new Map();
   // Pending workspaces for /cli cwd
   private pendingCliCwdWorkspaces: Map<string, string[]> = new Map();
+  /** Pending model ids for /cli model (from agent --list-models). */
+  private pendingCliModels: Map<string, string[]> = new Map();
   // Active CLI attach per Telegram chat (overrides SDK routing for text)
   private cliAttaches: Map<string, CliAttach> = new Map();
   private cliRunner = new CliPrintRunner();
@@ -128,11 +135,13 @@ export class TelegramChannel implements Channel {
     );
     this.cliAttaches = new Map();
     for (const [key, attach] of loaded.entries()) {
+      const model = normalizeCliModel(attach.model);
       this.cliAttaches.set(key, {
         chatId: attach.chatId,
         cwd: attach.cwd,
         title: attach.title,
         mode: normalizeCliAgentMode(attach.mode),
+        ...(model ? { model } : {}),
       });
     }
     if (removed > 0) {
@@ -152,10 +161,15 @@ export class TelegramChannel implements Channel {
   }
 
   private setCliAttach(telegramChatId: string, attach: CliAttach): void {
+    const model = normalizeCliModel(attach.model);
     this.cliAttaches.set(telegramChatId, {
       ...attach,
       mode: normalizeCliAgentMode(attach.mode),
+      ...(model ? { model } : { model: undefined }),
     });
+    // Drop explicit undefined so JSON omit works via save of optional field
+    const stored = this.cliAttaches.get(telegramChatId)!;
+    if (!model) delete stored.model;
     this.activeSessions.delete(telegramChatId);
     this.persistCliAttaches();
   }
@@ -171,6 +185,16 @@ export class TelegramChannel implements Channel {
   private clearCliAttach(telegramChatId: string): void {
     this.cliAttaches.delete(telegramChatId);
     this.persistCliAttaches();
+  }
+
+  /** Resolve Telegram chat id from a callback query (ctx.chat can be missing). */
+  private callbackChatId(ctx: Context<Update>): string {
+    if (ctx.chat?.id != null) return String(ctx.chat.id);
+    const q = ctx.callbackQuery;
+    if (q && 'message' in q && q.message && 'chat' in q.message && q.message.chat?.id != null) {
+      return String(q.message.chat.id);
+    }
+    return '';
   }
 
   private setupMiddleware(): void {
@@ -203,7 +227,7 @@ export class TelegramChannel implements Channel {
     if (this.config.cliBridge.enabled) {
       commands.splice(2, 0, {
         command: 'cli',
-        description: 'CLI chats: list/mode/cwd/new/cancel/off (see /start)',
+        description: 'CLI chats: list/mode/model/cwd/new/cancel/off (see /start)',
       });
     }
     return commands;
@@ -273,6 +297,7 @@ export class TelegramChannel implements Channel {
                 '/cli all - List all CLI chats',
                 '/cli new - Create and attach a new CLI chat',
                 '/cli cwd - Change workspace for the attached CLI chat',
+                '/cli model - Pick model for the attached CLI chat (incl. Auto)',
                 '/cli mode [agent|plan|ask] - Show or set CLI execution mode',
                 '/cli plan|/cli ask|/cli agent - Shortcuts for /cli mode',
                 '/cli cancel - Stop the attached CLI chat run',
@@ -524,6 +549,11 @@ export class TelegramChannel implements Channel {
         return;
       }
 
+      if (argLower === 'model' || argLower.startsWith('model ')) {
+        await this.startCliModel(ctx, chatId);
+        return;
+      }
+
       const listAll = argLower === 'all';
       await this.replyCliChatList(ctx, chatId, { listAll });
     });
@@ -541,20 +571,70 @@ export class TelegramChannel implements Channel {
       await ctx.reply('✅ Connected to SDK session (CLI attach cleared). You can now send messages.');
     });
 
-    // Handle model selection callback
-    this.bot.action(/model:(\d+)/, async (ctx) => {
+    // SDK /models picker only (must be ^anchored — must NOT match cli:model:N)
+    this.bot.action(/^model:(\d+)$/, async (ctx) => {
       const index = parseInt(ctx.match[1], 10);
-      const _chatId = String(ctx.chat?.id);
-      const models = this.modelIds.get(_chatId);
+      const chatId = this.callbackChatId(ctx);
+      const models = this.modelIds.get(chatId);
 
-      if (models) {
-        const model = models[index];
-        if (model) {
-          this.sessionManager.setDefaultModel(model);
-          await ctx.answerCbQuery(`Default model set to ${model}`);
-          await ctx.reply(`✅ Default model set to: ${model}`);
-        }
+      if (!models || !models[index]) {
+        await ctx.answerCbQuery('Expired — send /models again', { show_alert: true });
+        return;
       }
+      const model = models[index];
+      this.sessionManager.setDefaultModel(model);
+      await ctx.answerCbQuery(`Default model set to ${model}`);
+      await ctx.reply(`✅ Default model set to: ${model}`);
+    });
+
+    // CLI /cli model picker (dedicated — registered before generic cli: handler)
+    this.bot.action(/^cli:model:(\d+)$/, async (ctx) => {
+      const index = parseInt(ctx.match[1], 10);
+      const chatId = this.callbackChatId(ctx);
+      const options = this.pendingCliModels.get(chatId);
+      const attach = this.cliAttaches.get(chatId);
+
+      if (!attach || !options || Number.isNaN(index) || index < 0 || index >= options.length) {
+        logger.warn(
+          { chatId, index, hasOptions: !!options, hasAttach: !!attach },
+          'CLI model selection invalid or expired'
+        );
+        await ctx.answerCbQuery('Expired — send /cli model again', { show_alert: true });
+        return;
+      }
+
+      const nextModel = options[index];
+      this.setCliAttach(chatId, { ...attach, model: nextModel });
+      this.pendingCliModels.delete(chatId);
+
+      const label = formatCliModelLabel(nextModel);
+      const confirm =
+        `✅ Model updated for ${attach.title}: ${label} (${nextModel})\n` +
+        `Applies to the next message.`;
+
+      try {
+        await ctx.answerCbQuery(`Model set: ${label}`.slice(0, 200));
+      } catch (err) {
+        logger.warn({ err }, 'answerCbQuery failed for CLI model');
+      }
+
+      // Drop the picker so the chat stays short, then send confirmation (scrolls to bottom)
+      try {
+        await ctx.deleteMessage();
+      } catch (err) {
+        logger.warn({ err, chatId }, 'Could not delete CLI model picker message');
+      }
+
+      try {
+        await this.sendMessage(chatId, confirm);
+      } catch (err) {
+        logger.warn({ err, chatId }, 'Could not send CLI model confirmation');
+      }
+
+      logger.info(
+        { telegramChatId: chatId, cliChatId: attach.chatId, model: nextModel },
+        'CLI model updated'
+      );
     });
 
     // Handle GitHub repo selection
@@ -648,7 +728,8 @@ export class TelegramChannel implements Channel {
         await ctx.reply(
           `✅ Switched to CLI chat *${attach.title}*\n` +
             `Id: \`${attach.chatId}\`\n` +
-            `CLI mode: ${attach.mode}`,
+            `CLI mode: ${attach.mode}\n` +
+            `Model: ${formatCliModelLabel(attach.model)}`,
           { parse_mode: 'Markdown' }
         );
         if (finalText.trim()) {
@@ -711,6 +792,7 @@ export class TelegramChannel implements Channel {
         cwd: chat.cwd,
         title: chat.title,
         mode: prev?.mode ?? 'agent',
+        model: prev?.model,
       });
 
       await ctx.answerCbQuery(`Attached: ${chat.title}`);
@@ -718,9 +800,10 @@ export class TelegramChannel implements Channel {
         `✅ Attached CLI chat *${chat.title}*\n` +
           `Id: \`${chat.chatId}\`\n` +
           `cwd: \`${chat.cwd}\`\n` +
-          `CLI mode: ${prev?.mode ?? 'agent'}\n\n` +
+          `CLI mode: ${prev?.mode ?? 'agent'}\n` +
+          `Model: ${formatCliModelLabel(prev?.model)}\n\n` +
           'Send text to continue this chat via `agent -p --resume`.\n' +
-          'Note: runs with --force (no tool approval prompts). /cli mode plan|ask|agent · /cli off to detach.',
+          'Note: runs with --force (no tool approval prompts). /cli mode · /cli model · /cli off',
         { parse_mode: 'Markdown' }
       );
     });
@@ -770,6 +853,7 @@ export class TelegramChannel implements Channel {
         `Id: \`${attach.chatId}\``,
         `cwd: \`${attach.cwd}\``,
         `CLI mode: ${attach.mode}`,
+        `Model: ${formatCliModelLabel(attach.model)}`,
         `This chat run: ${running ? 'active' : 'idle'}` + (pending ? ` · queue: ${pending}` : '')
       );
     }
@@ -958,6 +1042,84 @@ export class TelegramChannel implements Channel {
     }
   }
 
+  private async startCliModel(ctx: Context<Update>, chatId: string): Promise<void> {
+    const attach = this.cliAttaches.get(chatId);
+    if (!attach) {
+      await ctx.reply('No CLI chat attached. Use /cli to attach one first.');
+      return;
+    }
+
+    const status = await ctx.reply('Retrieving models list…');
+    const statusMsgId = status.message_id;
+
+    try {
+      let models = await listCliModels({
+        agentBin: this.config.cliBridge.agentBin,
+        apiKey: this.config.cursorApiKey || undefined,
+      });
+
+      if (models.length === 0) {
+        const sdk = await this.sessionManager.getAgentService().listAvailableModels();
+        models = sdk
+          .filter((m) => m.id)
+          .map((m) => ({
+            id: mapSdkModelIdForCli(m.id),
+            name: m.name || m.id,
+          }));
+        // Dedupe after default→auto remap
+        const seen = new Set<string>();
+        models = models.filter((m) => {
+          if (seen.has(m.id)) return false;
+          seen.add(m.id);
+          return true;
+        });
+      }
+
+      if (models.length === 0) {
+        await ctx.telegram.editMessageText(
+          chatId,
+          statusMsgId,
+          undefined,
+          'No models available from the Cursor CLI.'
+        );
+        return;
+      }
+
+      const ids = models.map((m) => m.id);
+      this.pendingCliModels.set(chatId, ids);
+      const current = normalizeCliModel(attach.model) ?? 'auto';
+
+      const buttons = models.map((m, i) => {
+        const mark = current === m.id ? '✓ ' : '';
+        const label = `${mark}${m.name || m.id}`.slice(0, 60);
+        return [Markup.button.callback(label, `cli:model:${i}`)];
+      });
+
+      const header =
+        `Current model: ${formatCliModelLabel(attach.model)} (${current})\n` +
+        `Pick a model for ${attach.title}:`;
+      try {
+        await ctx.telegram.editMessageText(chatId, statusMsgId, undefined, header, {
+          ...Markup.inlineKeyboard(buttons),
+        });
+      } catch {
+        await ctx.reply(header, Markup.inlineKeyboard(buttons));
+      }
+    } catch (err) {
+      logger.error({ err }, 'Failed to list models for /cli model');
+      try {
+        await ctx.telegram.editMessageText(
+          chatId,
+          statusMsgId,
+          undefined,
+          'Could not list models for /cli model.'
+        );
+      } catch {
+        await ctx.reply('Could not list models for /cli model.');
+      }
+    }
+  }
+
   private async startCliCwd(ctx: Context<Update>, chatId: string): Promise<void> {
     const attach = this.cliAttaches.get(chatId);
     if (!attach) {
@@ -1054,10 +1216,11 @@ export class TelegramChannel implements Channel {
         cwd,
         title: `New · ${name}`,
         mode: prev?.mode ?? 'agent',
+        model: prev?.model,
       });
       await this.sendMessage(
         telegramChatId,
-        `✅ Created and attached CLI chat\nId: \`${chatId}\`\ncwd: \`${cwd}\`\nCLI mode: ${prev?.mode ?? 'agent'}\n\nSend text to start. /cli mode plan|ask|agent`
+        `✅ Created and attached CLI chat\nId: \`${chatId}\`\ncwd: \`${cwd}\`\nCLI mode: ${prev?.mode ?? 'agent'}\nModel: ${formatCliModelLabel(prev?.model)}\n\nSend text to start. /cli mode · /cli model`
       );
     } catch (err) {
       await this.sendMessage(
@@ -1127,12 +1290,14 @@ export class TelegramChannel implements Channel {
       );
       statusMsgId = status.message_id;
 
+      const liveAttach = this.cliAttaches.get(telegramChatId);
       const result = await this.cliRunner.run({
         agentBin: this.config.cliBridge.agentBin,
         chatId: attach.chatId,
-        cwd: attach.cwd,
+        cwd: liveAttach?.chatId === attach.chatId ? liveAttach.cwd : attach.cwd,
         prompt: text,
-        mode: this.cliAttaches.get(telegramChatId)?.mode ?? attach.mode ?? 'agent',
+        mode: liveAttach?.mode ?? attach.mode ?? 'agent',
+        model: liveAttach?.chatId === attach.chatId ? liveAttach.model : attach.model,
         force: this.config.cliBridge.force,
         trust: this.config.cliBridge.trust,
         timeoutMs: this.config.cliBridge.timeoutMs,

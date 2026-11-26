@@ -85,6 +85,40 @@ describe('cli attach store', () => {
     saveCliAttaches(loaded);
   });
 
+  it('round-trips model and keeps auto; maps default to auto', async () => {
+    const { normalizeCliModel } = await import('./cli-attach-store.js');
+    expect(normalizeCliModel('auto')).toBe('auto');
+    expect(normalizeCliModel('default')).toBe('auto');
+    expect(normalizeCliModel('')).toBeUndefined();
+
+    const key = `test-model-${Date.now()}`;
+    const map = loadCliAttaches();
+    map.set(key, {
+      chatId: 'uuid-3',
+      cwd: '/tmp',
+      title: 'M',
+      mode: 'agent',
+      model: 'composer-2',
+    });
+    saveCliAttaches(map);
+    let loaded = loadCliAttaches();
+    expect(loaded.get(key)?.model).toBe('composer-2');
+
+    map.set(key, {
+      chatId: 'uuid-3',
+      cwd: '/tmp',
+      title: 'M',
+      mode: 'agent',
+      model: 'auto',
+    });
+    saveCliAttaches(map);
+    loaded = loadCliAttaches();
+    expect(loaded.get(key)?.model).toBe('auto');
+
+    loaded.delete(key);
+    saveCliAttaches(loaded);
+  });
+
   it('prunes missing chat metas', () => {
     const map = new Map([
       ['1', { chatId: 'alive', cwd: '/a', title: 'A', mode: 'agent' as const }],

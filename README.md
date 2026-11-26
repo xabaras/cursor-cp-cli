@@ -4,7 +4,7 @@ Fork of [sanjaysingh/cursor-cp](https://github.com/sanjaysingh/cursor-cp) focuse
 
 It still ships the original **web dashboard**, **REST API**, and **Telegram SDK sessions** inherited from Sanjay Singh’s Cursor Control Plane, but active development targets the CLI bridge. Those inherited surfaces are kept working as-is and are **not** expected to receive further feature updates in this fork.
 
-**Current version: 0.6.2** · CLI command remains `cursor-cp` · GitHub repo: [xabaras/telegram-cursor-cli](https://github.com/xabaras/telegram-cursor-cli)
+**Current version: 0.6.3** · CLI command remains `cursor-cp` · GitHub repo: [xabaras/telegram-cursor-cli](https://github.com/xabaras/telegram-cursor-cli)
 
 [![CI](https://github.com/xabaras/telegram-cursor-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xabaras/telegram-cursor-cli/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -88,8 +88,9 @@ Then restart the daemon (`cursor-cp daemon restart`).
    Set `notify_on_complete: false` to keep edit-only behaviour.
 7. `/cli cwd` changes the workspace for the **attached** chat (applies to the next message;
    blocked while that chat has a run in progress).
-8. Without a CLI attach, plain text still uses **SDK sessions** (`/sessions`, `/workspaces`, …).
-9. Avoid using the **same** CLI chat in the terminal TUI and Telegram at the same time.
+8. `/cli model` picks **Auto** or a concrete model for the attached chat (persisted; next messages).
+9. Without a CLI attach, plain text still uses **SDK sessions** (`/sessions`, `/workspaces`, …).
+10. Avoid using the **same** CLI chat in the terminal TUI and Telegram at the same time.
 
 ### Telegram CLI commands
 
@@ -99,6 +100,7 @@ Then restart the daemon (`cursor-cp daemon restart`).
 | `/cli all` | List all CLI chats |
 | `/cli new` | Create and attach a new CLI chat |
 | `/cli cwd` | Change workspace for the attached CLI chat (aliases: `workspace`, `workdir`) |
+| `/cli model` | Pick model for the attached CLI chat (Auto or a listed model) |
 | `/cli mode [agent\|plan\|ask]` | Show or set CLI execution mode (persisted with the attach) |
 | `/cli plan` / `/cli ask` / `/cli agent` | Shortcuts for `/cli mode` |
 | `/cli cancel` | Stop the attached CLI chat run (and clear its queue) |
@@ -453,7 +455,7 @@ All endpoints are served under the `/api` prefix.
 
 ```http
 GET /api/health
-# → { "status": "ok", "version": "0.6.2" }
+# → { "status": "ok", "version": "0.6.3" }
 GET /api/dashboard-config
 # → { "web_channel_key": "web:default", "workspace_root": "...", "default_model": "...", "max_sessions": 5 }
 ```
@@ -525,6 +527,10 @@ Only users listed in `channels.telegram.allowed_user_ids` are allowed to interac
 
 ## Changelog
 
+### 0.6.3 — 2026-11-26
+
+- `/cli model` — pick **Auto** or a listed model for the attached CLI chat (persisted; passed as `--model` on the next run).
+
 ### 0.6.2 — 2026-11-26
 
 - Off-attach completion button label: **Switch to …** (was Italian “Passa a …”), consistent with the English bot UI.
@@ -535,14 +541,6 @@ Only users listed in `channels.telegram.allowed_user_ids` are allowed to interac
 - Soft product rebrand to **Telegram Cursor CLI** (display / npm `telegram-cursor-cli`; `cursor-cp` command and paths unchanged).
 - `CHANGELOG.md` and version / recent-changes section in the README.
 - README documents parallel CLI jobs, attach switching, and the **Switch to …** completion button.
-
-### 0.6.0 — 2026-11-26
-
-- Parallel CLI jobs across different chats (FIFO queue per chat).
-- Stream updates only while that CLI chat is attached; background jobs keep running.
-- Off-attach completion message with chat id and **Switch to …** button (re-attaches and re-shows the reply).
-- `/cli status` lists active/queued jobs; `/cli cancel` / `/cli cancel all`.
-- Default `cli_bridge.timeout_ms` is `0` (no hard kill on long agent runs).
 
 For the full changes history see [CHANGELOG.md](CHANGELOG.md).
 
