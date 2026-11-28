@@ -37,6 +37,7 @@ import {
   wrapTelegramHandler,
   formatTelegramError,
   replySafe,
+  runWithRetry,
 } from './telegram-resilience.js';
 
 interface PendingQuestion {
@@ -134,6 +135,8 @@ export class TelegramChannel implements Channel {
   private sessionManager: SessionManager;
   private allowedUserIds: Set<number>;
   private config: AppConfig;
+  /** Set by stop() so the launch retry loop exits instead of reconnecting. */
+  private stopping = false;
 
   // Pending questions by callback token
   private pendingQuestions: Map<string, PendingQuestion> = new Map();
@@ -1567,6 +1570,7 @@ export class TelegramChannel implements Channel {
   }
 
   async start(): Promise<void> {
+    this.stopping = false;
     this.bot.catch((err, ctx) => {
       logger.error({ err, updateType: ctx?.updateType }, 'Telegraf polling error');
       if (ctx) {
@@ -1574,12 +1578,33 @@ export class TelegramChannel implements Channel {
       }
     });
 
-    await this.bot.launch();
-    await this.syncBotCommands();
-    logger.info('Telegram bot polling started');
+    // Do not await launch: in Telegraf 4 it only resolves when polling ends,
+    // so awaiting it kept registry from logging telegram as started and left
+    // syncBotCommands unreachable. Retries cover getMe ENOTFOUND at boot
+    // (network not ready yet after a Mac restart).
+    void runWithRetry(
+      (resetBackoff) =>
+        this.bot.launch(() => {
+          resetBackoff();
+          logger.info('Telegram bot polling started');
+          void this.syncBotCommands().catch((err) => {
+            logger.warn({ err }, 'Failed to sync Telegram bot commands');
+          });
+        }),
+      {
+        isStopping: () => this.stopping,
+        onRetry: (err, delayMs, attempt) => {
+          logger.warn(
+            { err, delayMs, attempt },
+            'Telegram launch failed; retrying after backoff'
+          );
+        },
+      }
+    );
   }
 
   async stop(): Promise<void> {
+    this.stopping = true;
     this.cliRunner.cancel();
     this.bot.stop();
     logger.info('Telegram bot stopped');

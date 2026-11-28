@@ -4,7 +4,7 @@ Fork of [sanjaysingh/cursor-cp](https://github.com/sanjaysingh/cursor-cp) focuse
 
 It still ships the original **web dashboard**, **REST API**, and **Telegram SDK sessions** inherited from Sanjay Singh’s Cursor Control Plane, but active development targets the CLI bridge. Those inherited surfaces are kept working as-is and are **not** expected to receive further feature updates in this fork.
 
-**Current version: 0.6.5** · CLI command remains `cursor-cp` · GitHub repo: [xabaras/telegram-cursor-cli](https://github.com/xabaras/telegram-cursor-cli)
+**Current version: 0.6.6** · CLI command remains `cursor-cp` · GitHub repo: [xabaras/telegram-cursor-cli](https://github.com/xabaras/telegram-cursor-cli)
 
 [![CI](https://github.com/xabaras/telegram-cursor-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xabaras/telegram-cursor-cli/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -455,7 +455,7 @@ All endpoints are served under the `/api` prefix.
 
 ```http
 GET /api/health
-# → { "status": "ok", "version": "0.6.5" }
+# → { "status": "ok", "version": "0.6.6" }
 GET /api/dashboard-config
 # → { "web_channel_key": "web:default", "workspace_root": "...", "default_model": "...", "max_sessions": 5 }
 ```
@@ -527,6 +527,10 @@ Only users listed in `channels.telegram.allowed_user_ids` are allowed to interac
 
 ## Changelog
 
+### 0.6.6 — 2026-11-28
+
+- Telegram launch retries with backoff after boot-time DNS failures, so a Mac reboot no longer leaves the bot silent until a manual restart.
+
 ### 0.6.5 — 2026-11-28
 
 - Remove unused imports in `cli-bridge-helpers.test.ts` so the CI lint job passes.
@@ -536,10 +540,6 @@ Only users listed in `channels.telegram.allowed_user_ids` are allowed to interac
 - `/cli new` workspace buttons work again (they answered **Invalid selection**: an unanchored SDK `ws:` handler caught `cli:newws:N`). All callback patterns are now anchored.
 - `/cli` and `/cli all` list every chat, 20 per page with **« Prev** / **Next »** (was capped at 25).
 - Chats run in a temp dir (e.g. scripts calling `agent -p` in `mktemp`) are hidden from the list.
-
-### 0.6.3 — 2026-11-26
-
-- `/cli model` — pick **Auto** or a listed model for the attached CLI chat (persisted; passed as `--model` on the next run).
 
 For the full changes history see [CHANGELOG.md](CHANGELOG.md).
 

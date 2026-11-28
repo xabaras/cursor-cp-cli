@@ -5,6 +5,11 @@ All notable changes to this fork are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.6] — 2026-11-28
+
+### Fixed
+- After a Mac reboot the Telegram bot gave up on the first `getMe` failure (`ENOTFOUND` while DNS was still coming up) and never retried, so the process stayed up with no Telegram channel. Launch now retries with exponential backoff (2s → 60s) until Telegram answers or the service stops, and `/` commands are synced again when polling starts.
+
 ## [0.6.5] — 2026-11-28
 
 ### Fixed
