@@ -2,10 +2,7 @@
  * Tests for CLI lock, attach store, and job queue
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
-import { tmpdir } from 'os';
-import { join, resolve } from 'path';
+import { describe, it, expect } from 'vitest';
 import { tryAcquireCliChatLock, releaseCliChatLock } from './cli-chat-lock.js';
 import {
   loadCliAttaches,
