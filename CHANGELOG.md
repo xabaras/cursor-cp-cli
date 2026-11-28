@@ -5,6 +5,15 @@ All notable changes to this fork are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] — 2026-11-28
+
+### Fixed
+- `/cli new`: picking a workspace answered **Invalid selection**. The SDK workspace handler `/ws:(\d+)/` was unanchored and registered first, so it caught `cli:newws:N` and looked in the wrong list. Every callback pattern (`session`, `gh`, `ws`, `q:`) is now anchored, in `CALLBACK_PATTERNS`.
+
+### Changed
+- `/cli` and `/cli all` list every chat, 20 per page with **« Prev** / **Next »**, instead of the 25 most recent.
+- Chats whose cwd is a temp dir (`os.tmpdir()`, `/tmp`, `/private/var/folders`) are hidden from the list; scripts that run `agent -p` in `mktemp` leave one untitled chat per run.
+
 ## [0.6.3] — 2026-11-26
 
 ### Added

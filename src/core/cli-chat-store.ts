@@ -3,7 +3,8 @@
  */
 
 import { readdir, readFile, stat } from 'fs/promises';
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, realpathSync } from 'fs';
+import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 import { expandHome } from '../config/home.js';
 
@@ -27,6 +28,28 @@ export interface ListCliChatsOptions {
   limit?: number;
   /** Include chats with hasConversation: false (default false). */
   includeEmpty?: boolean;
+  /**
+   * Skip chats whose cwd is a temp dir (default true). Scripts that run
+   * `agent -p` in a mktemp folder, like the standup formatter, leave one
+   * untitled chat per run there.
+   */
+  excludeTempDirs?: boolean;
+}
+
+function tempRoots(): string[] {
+  const roots = new Set(['/tmp', '/private/tmp', '/private/var/folders', '/var/folders']);
+  const tmp = tmpdir();
+  roots.add(resolve(tmp));
+  try {
+    roots.add(realpathSync(tmp));
+  } catch {
+    // tmpdir() that cannot be resolved still counts by its own path
+  }
+  return [...roots];
+}
+
+export function isTempDirCwd(cwd: string, roots: string[] = tempRoots()): boolean {
+  return roots.some((root) => isUnderPrefix(cwd, root));
 }
 
 interface RawMeta {
@@ -49,6 +72,7 @@ export async function listCliChats(options: ListCliChatsOptions): Promise<CliCha
   const limit = options.limit ?? 30;
   const includeEmpty = options.includeEmpty ?? false;
   const cwdPrefix = options.cwdPrefix ? expandHome(options.cwdPrefix) : undefined;
+  const skipRoots = (options.excludeTempDirs ?? true) ? tempRoots() : [];
 
   if (!existsSync(root)) {
     return [];
@@ -97,6 +121,7 @@ export async function listCliChats(options: ListCliChatsOptions): Promise<CliCha
       const cwd = typeof raw.cwd === 'string' ? raw.cwd : '';
       if (!cwd) continue;
       if (cwdPrefix && !isUnderPrefix(cwd, cwdPrefix)) continue;
+      if (skipRoots.length && isTempDirCwd(cwd, skipRoots)) continue;
 
       const updatedAtMs = typeof raw.updatedAtMs === 'number' ? raw.updatedAtMs : 0;
       const createdAtMs = typeof raw.createdAtMs === 'number' ? raw.createdAtMs : updatedAtMs;

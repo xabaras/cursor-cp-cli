@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { resolve, join } from 'path';
-import { listCliChats, formatCliChatLabel } from './cli-chat-store.js';
+import { listCliChats, formatCliChatLabel, isTempDirCwd } from './cli-chat-store.js';
 
 describe('listCliChats', () => {
   let root: string;
@@ -117,6 +117,45 @@ describe('listCliChats', () => {
     const chats = await listCliChats({ chatsRoot: root, limit: 2 });
     expect(chats).toHaveLength(2);
     expect(chats[0].chatId).toBe('id-4');
+  });
+
+  it('returns every chat with no limit', async () => {
+    for (let i = 0; i < 40; i++) {
+      writeMeta('p', `id-${i}`, {
+        hasConversation: true,
+        title: `T${i}`,
+        cwd: `/Users/me/p${i}`,
+        updatedAtMs: i,
+      });
+    }
+    expect(await listCliChats({ chatsRoot: root, limit: Infinity })).toHaveLength(40);
+  });
+
+  it('hides chats run in a temp dir unless asked', async () => {
+    writeMeta('p', 'real', { hasConversation: true, cwd: '/Users/me/app', updatedAtMs: 1 });
+    writeMeta('p', 'formatter', {
+      hasConversation: true,
+      cwd: '/private/var/folders/9n/abc/T/tmp.N5fka7jEdZ',
+      updatedAtMs: 2,
+    });
+    writeMeta('p', 'mktemp', { hasConversation: true, cwd: join(tmpdir(), 'tmp.x'), updatedAtMs: 3 });
+    writeMeta('p', 'slash-tmp', { hasConversation: true, cwd: '/tmp/run', updatedAtMs: 4 });
+
+    const shown = await listCliChats({ chatsRoot: root });
+    expect(shown.map((c) => c.chatId)).toEqual(['real']);
+
+    const all = await listCliChats({ chatsRoot: root, excludeTempDirs: false });
+    expect(all).toHaveLength(4);
+  });
+});
+
+describe('isTempDirCwd', () => {
+  it('matches temp roots and their children only', () => {
+    const roots = ['/tmp', '/private/var/folders'];
+    expect(isTempDirCwd('/tmp', roots)).toBe(true);
+    expect(isTempDirCwd('/private/var/folders/9n/x/T/tmp.1', roots)).toBe(true);
+    expect(isTempDirCwd('/tmpfiles/app', roots)).toBe(false);
+    expect(isTempDirCwd('/Users/me/tmp', roots)).toBe(false);
   });
 });
 

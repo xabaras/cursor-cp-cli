@@ -70,6 +70,63 @@ function cliQueueKey(telegramChatId: string, cliChatId: string): string {
   return `${telegramChatId}:${cliChatId}`;
 }
 
+/**
+ * Inline-button callback routes. Telegraf runs the first handler whose pattern
+ * matches, so every one is anchored: unanchored, /ws:(\d+)/ swallowed
+ * `cli:newws:N` and answered "Invalid selection" for every /cli new pick.
+ */
+export const CALLBACK_PATTERNS = {
+  session: /^session:(.+)$/,
+  model: /^model:(\d+)$/,
+  cliModel: /^cli:model:(\d+)$/,
+  gh: /^gh:(\d+)$/,
+  ws: /^ws:(\d+)$/,
+  cli: /^cli:(.+)$/,
+  question: (token: string) => new RegExp(`^q:${token}:(\\d+)$`),
+} as const;
+
+export const CLI_CHAT_PAGE_SIZE = 20;
+
+type InlineButton = ReturnType<typeof Markup.button.callback>;
+
+export interface CliChatPage {
+  text: string;
+  buttons: InlineButton[][];
+  page: number;
+  pages: number;
+}
+
+/**
+ * One page of the /cli picker. Chat buttons carry the index into the full
+ * list (`cli:<i>`), so a pick on any page resolves against pendingCliChats.
+ */
+export function buildCliChatPage(
+  chats: CliChatMeta[],
+  page: number,
+  header: string,
+  pageSize = CLI_CHAT_PAGE_SIZE
+): CliChatPage {
+  const pages = Math.max(1, Math.ceil(chats.length / pageSize));
+  const current = Math.min(Math.max(0, Math.trunc(page) || 0), pages - 1);
+  const start = current * pageSize;
+
+  const buttons: InlineButton[][] = chats
+    .slice(start, start + pageSize)
+    .map((chat, i) => [Markup.button.callback(formatCliChatLabel(chat), `cli:${start + i}`)]);
+
+  if (pages > 1) {
+    const nav: InlineButton[] = [];
+    if (current > 0) nav.push(Markup.button.callback('« Prev', `cli:page:${current - 1}`));
+    if (current < pages - 1) nav.push(Markup.button.callback('Next »', `cli:page:${current + 1}`));
+    buttons.push(nav);
+  }
+  buttons.push([Markup.button.callback('Detach CLI (/cli off)', 'cli:off')]);
+
+  const text =
+    pages > 1 ? `${header}\n\nPage ${current + 1}/${pages} · ${chats.length} chats` : header;
+  return { text, buttons, page: current, pages };
+}
+
 export class TelegramChannel implements Channel {
   readonly name = 'telegram';
 
@@ -88,6 +145,8 @@ export class TelegramChannel implements Channel {
   private modelIds: Map<string, string[]> = new Map();
   // Pending CLI chat picks for /cli
   private pendingCliChats: Map<string, CliChatMeta[]> = new Map();
+  /** Header of the /cli picker, reused when paging through pendingCliChats. */
+  private pendingCliChatHeaders: Map<string, string> = new Map();
   // Pending workspaces for /cli new
   private pendingCliNewWorkspaces: Map<string, string[]> = new Map();
   // Pending workspaces for /cli cwd
@@ -559,7 +618,7 @@ export class TelegramChannel implements Channel {
     });
 
     // Handle session selection callback
-    this.bot.action(/session:(.+)/, async (ctx) => {
+    this.bot.action(CALLBACK_PATTERNS.session, async (ctx) => {
       const sessionId = ctx.match[1];
       const chatId = String(ctx.chat?.id);
 
@@ -572,7 +631,7 @@ export class TelegramChannel implements Channel {
     });
 
     // SDK /models picker only (must be ^anchored — must NOT match cli:model:N)
-    this.bot.action(/^model:(\d+)$/, async (ctx) => {
+    this.bot.action(CALLBACK_PATTERNS.model, async (ctx) => {
       const index = parseInt(ctx.match[1], 10);
       const chatId = this.callbackChatId(ctx);
       const models = this.modelIds.get(chatId);
@@ -588,7 +647,7 @@ export class TelegramChannel implements Channel {
     });
 
     // CLI /cli model picker (dedicated — registered before generic cli: handler)
-    this.bot.action(/^cli:model:(\d+)$/, async (ctx) => {
+    this.bot.action(CALLBACK_PATTERNS.cliModel, async (ctx) => {
       const index = parseInt(ctx.match[1], 10);
       const chatId = this.callbackChatId(ctx);
       const options = this.pendingCliModels.get(chatId);
@@ -638,7 +697,7 @@ export class TelegramChannel implements Channel {
     });
 
     // Handle GitHub repo selection
-    this.bot.action(/gh:(\d+)/, async (ctx) => {
+    this.bot.action(CALLBACK_PATTERNS.gh, async (ctx) => {
       const index = parseInt(ctx.match[1], 10);
       const chatId = String(ctx.chat?.id);
       const repos = this.pendingGitHubRepos.get(chatId);
@@ -682,7 +741,7 @@ export class TelegramChannel implements Channel {
     });
 
     // Handle workspace selection
-    this.bot.action(/ws:(\d+)/, async (ctx) => {
+    this.bot.action(CALLBACK_PATTERNS.ws, async (ctx) => {
       const index = parseInt(ctx.match[1], 10);
       const chatId = String(ctx.chat?.id);
       const paths = this.pendingWorkspaces.get(chatId);
@@ -704,7 +763,7 @@ export class TelegramChannel implements Channel {
     });
 
     // Handle CLI chat selection / detach / new-workspace
-    this.bot.action(/^cli:(.+)$/, async (ctx) => {
+    this.bot.action(CALLBACK_PATTERNS.cli, async (ctx) => {
       const chatId = String(ctx.chat?.id);
       const key = ctx.match[1];
 
@@ -775,6 +834,24 @@ export class TelegramChannel implements Channel {
             `Applies to the next message (not an in-flight run).`,
           { parse_mode: 'Markdown' }
         );
+        return;
+      }
+
+      if (key.startsWith('page:')) {
+        const page = Number.parseInt(key.slice('page:'.length), 10);
+        const chats = this.pendingCliChats.get(chatId);
+        const header = this.pendingCliChatHeaders.get(chatId);
+        if (!chats || !header || Number.isNaN(page)) {
+          await ctx.answerCbQuery('Expired — send /cli again');
+          return;
+        }
+        const view = buildCliChatPage(chats, page, header);
+        try {
+          await ctx.editMessageText(view.text, Markup.inlineKeyboard(view.buttons));
+        } catch (err) {
+          logger.warn({ err, chatId, page }, 'Could not page the CLI chat list');
+        }
+        await ctx.answerCbQuery(`Page ${view.page + 1}/${view.pages}`);
         return;
       }
 
@@ -1010,7 +1087,7 @@ export class TelegramChannel implements Channel {
       const chats = await listCliChats({
         chatsRoot: this.config.cliBridge.chatsRoot,
         cwdPrefix: filter,
-        limit: 25,
+        limit: Infinity,
       });
 
       if (chats.length === 0) {
@@ -1023,19 +1100,16 @@ export class TelegramChannel implements Channel {
         return;
       }
 
-      this.pendingCliChats.set(chatId, chats);
-      const buttons = chats.map((chat, i) => {
-        return [Markup.button.callback(formatCliChatLabel(chat), `cli:${i}`)];
-      });
-      buttons.push([Markup.button.callback('Detach CLI (/cli off)', 'cli:off')]);
-
       const attached = this.cliAttaches.get(chatId);
       const scope = filter ? `(filtered: ${filter})` : '(all chats)';
       const header = attached
         ? `Currently attached: ${attached.title}\n${scope}\n\nPick a Cursor CLI chat:`
         : `Cursor CLI chats ${scope} — tap to attach:`;
 
-      await ctx.reply(header, Markup.inlineKeyboard(buttons));
+      this.pendingCliChats.set(chatId, chats);
+      this.pendingCliChatHeaders.set(chatId, header);
+      const { text, buttons } = buildCliChatPage(chats, 0, header);
+      await ctx.reply(text, Markup.inlineKeyboard(buttons));
     } catch (err) {
       logger.error({ err }, 'Failed to list CLI chats');
       await ctx.reply('Could not list CLI chats.');
@@ -1599,7 +1673,7 @@ export class TelegramChannel implements Channel {
       });
 
       // Set up one-time handler for this question
-      this.bot.action(new RegExp(`q:${token}:(\\d+)`), async (ctx) => {
+      this.bot.action(CALLBACK_PATTERNS.question(token), async (ctx) => {
         const index = parseInt(ctx.match[1], 10);
         const pending = this.pendingQuestions.get(token);
 

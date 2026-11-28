@@ -4,7 +4,7 @@ Fork of [sanjaysingh/cursor-cp](https://github.com/sanjaysingh/cursor-cp) focuse
 
 It still ships the original **web dashboard**, **REST API**, and **Telegram SDK sessions** inherited from Sanjay Singh’s Cursor Control Plane, but active development targets the CLI bridge. Those inherited surfaces are kept working as-is and are **not** expected to receive further feature updates in this fork.
 
-**Current version: 0.6.3** · CLI command remains `cursor-cp` · GitHub repo: [xabaras/telegram-cursor-cli](https://github.com/xabaras/telegram-cursor-cli)
+**Current version: 0.6.4** · CLI command remains `cursor-cp` · GitHub repo: [xabaras/telegram-cursor-cli](https://github.com/xabaras/telegram-cursor-cli)
 
 [![CI](https://github.com/xabaras/telegram-cursor-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xabaras/telegram-cursor-cli/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -96,8 +96,8 @@ Then restart the daemon (`cursor-cp daemon restart`).
 
 | Command | Description |
 |---------|-------------|
-| `/cli` | List and attach a CLI chat (filtered by `workspace_root` when enabled) |
-| `/cli all` | List all CLI chats |
+| `/cli` | List and attach a CLI chat (filtered by `workspace_root` when enabled; 20 per page) |
+| `/cli all` | List all CLI chats, paged (chats run in a temp dir are hidden) |
 | `/cli new` | Create and attach a new CLI chat |
 | `/cli cwd` | Change workspace for the attached CLI chat (aliases: `workspace`, `workdir`) |
 | `/cli model` | Pick model for the attached CLI chat (Auto or a listed model) |
@@ -455,7 +455,7 @@ All endpoints are served under the `/api` prefix.
 
 ```http
 GET /api/health
-# → { "status": "ok", "version": "0.6.3" }
+# → { "status": "ok", "version": "0.6.4" }
 GET /api/dashboard-config
 # → { "web_channel_key": "web:default", "workspace_root": "...", "default_model": "...", "max_sessions": 5 }
 ```
@@ -527,6 +527,12 @@ Only users listed in `channels.telegram.allowed_user_ids` are allowed to interac
 
 ## Changelog
 
+### 0.6.4 — 2026-11-28
+
+- `/cli new` workspace buttons work again (they answered **Invalid selection**: an unanchored SDK `ws:` handler caught `cli:newws:N`). All callback patterns are now anchored.
+- `/cli` and `/cli all` list every chat, 20 per page with **« Prev** / **Next »** (was capped at 25).
+- Chats run in a temp dir (e.g. scripts calling `agent -p` in `mktemp`) are hidden from the list.
+
 ### 0.6.3 — 2026-11-26
 
 - `/cli model` — pick **Auto** or a listed model for the attached CLI chat (persisted; passed as `--model` on the next run).
@@ -534,13 +540,6 @@ Only users listed in `channels.telegram.allowed_user_ids` are allowed to interac
 ### 0.6.2 — 2026-11-26
 
 - Off-attach completion button label: **Switch to …** (was Italian “Passa a …”), consistent with the English bot UI.
-
-### 0.6.1 — 2026-11-26
-
-- `/cli cwd` (aliases: `/cli workspace`, `/cli workdir`) to change the workspace of the attached CLI chat for subsequent runs.
-- Soft product rebrand to **Telegram Cursor CLI** (display / npm `telegram-cursor-cli`; `cursor-cp` command and paths unchanged).
-- `CHANGELOG.md` and version / recent-changes section in the README.
-- README documents parallel CLI jobs, attach switching, and the **Switch to …** completion button.
 
 For the full changes history see [CHANGELOG.md](CHANGELOG.md).
 
